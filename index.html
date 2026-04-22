@@ -257,6 +257,68 @@
       text-align: right;
     }
 
+    /* Affichage live metrics */
+    .metrics {
+      margin-top: 0.5rem;
+      padding: 0.5rem 0.65rem;
+      background: var(--surface-2);
+      border-radius: 8px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.4;
+    }
+    .metrics .ok { color: var(--accent); }
+    .metrics .ko { color: var(--text-dim); }
+    .metrics .sep { color: var(--border); }
+
+    /* Pré-record */
+    .prerecord-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .prerecord-row button {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    button.primary.recording {
+      background: var(--danger);
+      color: #fff;
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 92, 0.4); }
+      50% { box-shadow: 0 0 0 10px rgba(255, 59, 92, 0); }
+    }
+    #preRecordPlayback {
+      width: 100%;
+      margin-top: 0.75rem;
+      border-radius: 8px;
+      background: var(--surface-2);
+    }
+    .prerecord-summary {
+      margin-top: 0.5rem;
+      font-size: 0.78rem;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Timeline MIDI canvas */
+    .notes-timeline {
+      height: 180px;
+      background: var(--surface-2);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px var(--border);
+    }
+    #notesCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
     .class-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -321,14 +383,37 @@
         </div>
         <div class="sens-row">
           <label for="sensSlider">Sensibilité</label>
-          <input type="range" id="sensSlider" min="1" max="10" step="1" value="7">
-          <span class="sens-value" id="sensValue">7</span>
+          <input type="range" id="sensSlider" min="1" max="10" step="1" value="8">
+          <span class="sens-value" id="sensValue">8</span>
         </div>
-        <p class="status">Fais un son : flash vert à chaque attaque, barre de droite = niveau</p>
+        <div class="metrics" id="liveMetrics">En attente…</div>
+        <p class="status">Vert = valeur au-dessus du seuil → onset déclenché</p>
       </div>
 
       <div class="card">
-        <h2>3. Logs</h2>
+        <h2>3. Pré-enregistrement</h2>
+        <div class="prerecord-row">
+          <button id="btnPreRecord" class="primary" style="width: auto; padding: 0.75rem 1.25rem;">
+            Enregistrer 5s
+          </button>
+          <span class="status" id="preRecordStatus" style="flex:1; text-align:left; padding:0;">
+            Active le micro, puis enregistre un court échantillon pour écouter
+          </span>
+        </div>
+        <audio id="preRecordPlayback" controls style="display:none;"></audio>
+        <div class="prerecord-summary" id="preRecordSummary"></div>
+      </div>
+
+      <div class="card">
+        <h2>4. Timeline MIDI</h2>
+        <div class="notes-timeline">
+          <canvas id="notesCanvas"></canvas>
+        </div>
+        <p class="status">Les onsets défilent de droite à gauche — prochainement classés kick/snare/hh</p>
+      </div>
+
+      <div class="card">
+        <h2>5. Logs</h2>
         <div class="log" id="log">En attente...</div>
       </div>
     </section>

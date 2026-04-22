@@ -36,13 +36,15 @@ export function onRMS(callback) {
   rmsCallbacks.push(callback);
 }
 
-// Sensibilité 1-10 : interpole linéairement les seuils entre valeurs strictes et très permissives
+// Sensibilité 1-10 : interpole (courbe exp) les seuils entre stricts et très permissifs
+// Plage large côté haut pour capter tongue clicks, claquements de langue, etc.
 export function setSensitivity(level) {
   const t = Math.max(1, Math.min(10, level));
   const k = (t - 1) / 9; // 0 à 1
-  // Plus k est grand, plus les seuils sont bas (plus sensible)
-  CONFIG.rmsThreshold = 0.025 - k * 0.023;   // 0.025 → 0.002
-  CONFIG.fluxThreshold = 0.35 - k * 0.33;    // 0.35 → 0.02
+  // Courbe exponentielle : aux hauts niveaux, seuils très bas
+  const curve = Math.pow(k, 1.5);
+  CONFIG.rmsThreshold = 0.02 * (1 - curve) + 0.0003 * curve;   // 0.02 → 0.0003
+  CONFIG.fluxThreshold = 0.3 * (1 - curve) + 0.003 * curve;    // 0.3 → 0.003
 }
 
 export async function startMicrophone() {
@@ -116,8 +118,8 @@ function onAudioFrame(features) {
 
   const { rms, spectralFlux, mfcc, spectralCentroid, zcr } = features;
 
-  // Broadcast RMS live pour le VU-meter UI
-  rmsCallbacks.forEach(cb => cb(rms));
+  // Broadcast live (rms + flux) pour VU-meter + affichage debug
+  rmsCallbacks.forEach(cb => cb(rms, spectralFlux));
 
   // Détection onset simple : RMS + flux spectral au-dessus des seuils
   const now = performance.now();
@@ -178,3 +180,36 @@ function visualize() {
 // Exposé pour debug/tuning
 export function getConfig() { return CONFIG; }
 export function setConfig(key, value) { CONFIG[key] = value; }
+
+// Pré-enregistrement : capture durationMs du stream micro + compte les onsets pendant la fenêtre
+// Retourne { blob, onsetsDuringRecord, mimeType }
+export async function recordSnapshot(durationMs = 5000) {
+  if (!stream) throw new Error('Micro non actif — active le micro d\'abord');
+
+  const chunks = [];
+  const recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+  // Collecte les onsets pendant la fenêtre d'enregistrement
+  const startT = performance.now();
+  const onsets = [];
+  const tempListener = (data) => {
+    onsets.push({ t: data.timestamp - startT, rms: data.rms });
+  };
+  onsetCallbacks.push(tempListener);
+
+  return new Promise((resolve, reject) => {
+    recorder.onstop = () => {
+      // Retire le listener temporaire
+      const idx = onsetCallbacks.indexOf(tempListener);
+      if (idx >= 0) onsetCallbacks.splice(idx, 1);
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      resolve({ blob, onsetsDuringRecord: onsets, mimeType: recorder.mimeType, durationMs });
+    };
+    recorder.onerror = (e) => reject(e.error || new Error('MediaRecorder error'));
+    recorder.start();
+    setTimeout(() => {
+      if (recorder.state !== 'inactive') recorder.stop();
+    }, durationMs);
+  });
+}
