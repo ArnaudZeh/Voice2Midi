@@ -1,0 +1,68 @@
+// src/storage.js
+// IndexedDB wrapper pour persister le modèle entraîné et les samples
+// À implémenter en Phase 2
+
+/**
+ * Plan :
+ * - DB : 'beatbox2midi'
+ * - Store : 'models' (modèle TF.js sérialisé + normalization stats)
+ * - Store : 'samples' (samples d'entraînement pour ré-entraîner plus tard)
+ * - Store : 'settings' (tempo par défaut, config utilisateur)
+ */
+
+const DB_NAME = 'beatbox2midi';
+const DB_VERSION = 1;
+
+let dbPromise = null;
+
+function openDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('samples')) {
+        db.createObjectStore('samples', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+export async function saveSample(classLabel, features) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('samples', 'readwrite');
+    const store = tx.objectStore('samples');
+    const req = store.add({ classLabel, features, timestamp: Date.now() });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getAllSamples() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('samples', 'readonly');
+    const store = tx.objectStore('samples');
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function clearSamples() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('samples', 'readwrite');
+    const store = tx.objectStore('samples');
+    const req = store.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
