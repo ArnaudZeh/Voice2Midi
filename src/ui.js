@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-import { startMicrophone, onOnset } from './audio.js';
+import { startMicrophone, onOnset, onRMS, setSensitivity } from './audio.js';
 
 // Navigation entre écrans
 const navButtons = document.querySelectorAll('nav button');
@@ -69,33 +69,92 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
+// Gain visuel : amplifie l'amplitude affichée pour rendre les sons soft lisibles
+const WAVEFORM_GAIN = 3.0;
+
 export function drawWaveform(dataArray) {
   const rect = canvas.getBoundingClientRect();
   const w = rect.width;
   const h = rect.height;
+  const mid = h / 2;
 
-  ctx.fillStyle = 'rgba(31, 31, 31, 0.3)';
+  // Fond — un chouïa plus opaque pour contraste
+  ctx.fillStyle = 'rgba(31, 31, 31, 0.45)';
   ctx.fillRect(0, 0, w, h);
 
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#00e5a0';
+  // Ligne centrale discrète
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+  ctx.lineWidth = 1;
   ctx.beginPath();
+  ctx.moveTo(0, mid);
+  ctx.lineTo(w, mid);
+  ctx.stroke();
 
   const sliceWidth = w / dataArray.length;
+
+  // 1er passage : fill gradient sous la courbe
+  const gradient = ctx.createLinearGradient(0, 0, 0, h);
+  gradient.addColorStop(0, 'rgba(0, 229, 160, 0.35)');
+  gradient.addColorStop(0.5, 'rgba(0, 229, 160, 0.12)');
+  gradient.addColorStop(1, 'rgba(0, 229, 160, 0.0)');
+
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.moveTo(0, mid);
   let x = 0;
-
   for (let i = 0; i < dataArray.length; i++) {
-    const v = dataArray[i] / 128.0;
-    const y = (v * h) / 2;
-
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-
+    const centered = (dataArray[i] - 128) / 128; // -1 à 1
+    const amplified = Math.max(-1, Math.min(1, centered * WAVEFORM_GAIN));
+    const y = mid + amplified * mid;
+    ctx.lineTo(x, y);
     x += sliceWidth;
   }
+  ctx.lineTo(w, mid);
+  ctx.closePath();
+  ctx.fill();
 
-  ctx.lineTo(w, h / 2);
+  // 2e passage : ligne épaisse + glow
+  ctx.shadowColor = '#00e5a0';
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#00e5a0';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  x = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    const centered = (dataArray[i] - 128) / 128;
+    const amplified = Math.max(-1, Math.min(1, centered * WAVEFORM_GAIN));
+    const y = mid + amplified * mid;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+    x += sliceWidth;
+  }
   ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+// VU-meter RMS — barre verticale à droite du canvas
+const rmsMeter = document.getElementById('rmsMeter');
+let rmsSmoothed = 0;
+onRMS((rms) => {
+  // Lissage type peak-follower pour éviter la nervosité
+  rmsSmoothed = Math.max(rms, rmsSmoothed * 0.85);
+  // Normalise sur [0,1] avec une courbe perçue (puissance)
+  const normalized = Math.min(1, Math.pow(rmsSmoothed * 6, 0.6));
+  if (rmsMeter) rmsMeter.style.height = `${normalized * 100}%`;
+});
+
+// Slider sensibilité
+const sensSlider = document.getElementById('sensSlider');
+const sensValue = document.getElementById('sensValue');
+if (sensSlider) {
+  const applySens = (v) => {
+    setSensitivity(v);
+    sensValue.textContent = v;
+  };
+  applySens(parseInt(sensSlider.value, 10));
+  sensSlider.addEventListener('input', (e) => applySens(parseInt(e.target.value, 10)));
 }
 
 // Debug : logger les 10 premiers onsets avec leurs features

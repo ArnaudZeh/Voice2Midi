@@ -148,11 +148,18 @@
     }
 
     .visualizer {
-      height: 120px;
+      height: 160px;
       background: var(--surface-2);
       border-radius: 10px;
       position: relative;
       overflow: hidden;
+      display: flex;
+      box-shadow: inset 0 0 0 1px rgba(0, 229, 160, 0.08);
+    }
+
+    .visualizer-canvas-wrap {
+      flex: 1;
+      position: relative;
     }
 
     #visualizerCanvas {
@@ -161,16 +168,94 @@
       display: block;
     }
 
+    .rms-meter-wrap {
+      width: 10px;
+      margin: 8px 8px 8px 0;
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 999px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .rms-meter {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 0%;
+      background: linear-gradient(to top, var(--accent-dim), var(--accent) 60%, var(--warning));
+      border-radius: 999px;
+      transition: height 60ms linear;
+    }
+
     .onset-flash {
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: var(--accent);
+      background: radial-gradient(circle at center, rgba(0, 229, 160, 0.45), rgba(0, 229, 160, 0) 70%);
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.15s;
+      transform: scale(0.96);
+      transition: opacity 150ms ease-out, transform 150ms ease-out;
     }
 
-    .onset-flash.active { opacity: 0.15; }
+    .onset-flash.active {
+      opacity: 1;
+      transform: scale(1.02);
+    }
+
+    /* Slider sensibilité */
+    .sens-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .sens-row label {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      min-width: 80px;
+    }
+
+    .sens-row input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      background: var(--surface-2);
+      border-radius: 999px;
+      outline: none;
+      touch-action: manipulation;
+    }
+
+    .sens-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid var(--surface);
+      box-shadow: 0 0 0 1px var(--border), 0 2px 8px rgba(0, 229, 160, 0.4);
+      cursor: pointer;
+    }
+
+    .sens-row input[type="range"]::-moz-range-thumb {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid var(--surface);
+      cursor: pointer;
+    }
+
+    .sens-value {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      color: var(--accent);
+      min-width: 24px;
+      text-align: right;
+    }
 
     .class-grid {
       display: grid;
@@ -226,10 +311,20 @@
       <div class="card">
         <h2>2. Visualisation live</h2>
         <div class="visualizer">
-          <canvas id="visualizerCanvas"></canvas>
-          <div class="onset-flash" id="onsetFlash"></div>
+          <div class="visualizer-canvas-wrap">
+            <canvas id="visualizerCanvas"></canvas>
+            <div class="onset-flash" id="onsetFlash"></div>
+          </div>
+          <div class="rms-meter-wrap">
+            <div class="rms-meter" id="rmsMeter"></div>
+          </div>
         </div>
-        <p class="status">Fais un son : tu dois voir un flash vert à chaque attaque</p>
+        <div class="sens-row">
+          <label for="sensSlider">Sensibilité</label>
+          <input type="range" id="sensSlider" min="1" max="10" step="1" value="7">
+          <span class="sens-value" id="sensValue">7</span>
+        </div>
+        <p class="status">Fais un son : flash vert à chaque attaque, barre de droite = niveau</p>
       </div>
 
       <div class="card">

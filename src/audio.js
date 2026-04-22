@@ -11,14 +11,14 @@ let stream = null;
 let sourceNode = null;
 let highpassFilter = null;
 
-// Paramètres tuning onset detection — à ajuster via tests réels
+// Paramètres tuning onset detection — calibrés pour beatbox soft (tongue clicks, etc.)
 const CONFIG = {
   bufferSize: 512,              // 512 @ 48kHz ≈ 10.6ms de latence
   featureExtractors: ['rms', 'spectralFlux', 'mfcc', 'spectralCentroid', 'zcr'],
   mfccCount: 13,
-  // Seuils onset detection
-  rmsThreshold: 0.02,           // énergie minimale pour considérer un onset
-  fluxThreshold: 0.4,           // flux spectral minimal (valeur relative)
+  // Seuils onset detection (défauts "sensibilité 7/10")
+  rmsThreshold: 0.004,          // énergie minimale — très bas pour capter les sons soft
+  fluxThreshold: 0.05,          // flux spectral minimal — bas pour détecter les attaques légères
   minOnsetInterval: 40,         // ms min entre 2 onsets (anti-rebond, 40ms = ~16e @ 180bpm)
   // Filtre passe-haut anti-souffle
   highpassFreq: 80,
@@ -26,9 +26,23 @@ const CONFIG = {
 
 let lastOnsetTime = 0;
 const onsetCallbacks = [];
+const rmsCallbacks = [];
 
 export function onOnset(callback) {
   onsetCallbacks.push(callback);
+}
+
+export function onRMS(callback) {
+  rmsCallbacks.push(callback);
+}
+
+// Sensibilité 1-10 : interpole linéairement les seuils entre valeurs strictes et très permissives
+export function setSensitivity(level) {
+  const t = Math.max(1, Math.min(10, level));
+  const k = (t - 1) / 9; // 0 à 1
+  // Plus k est grand, plus les seuils sont bas (plus sensible)
+  CONFIG.rmsThreshold = 0.025 - k * 0.023;   // 0.025 → 0.002
+  CONFIG.fluxThreshold = 0.35 - k * 0.33;    // 0.35 → 0.02
 }
 
 export async function startMicrophone() {
@@ -101,6 +115,9 @@ function onAudioFrame(features) {
   if (!features || features.rms === undefined) return;
 
   const { rms, spectralFlux, mfcc, spectralCentroid, zcr } = features;
+
+  // Broadcast RMS live pour le VU-meter UI
+  rmsCallbacks.forEach(cb => cb(rms));
 
   // Détection onset simple : RMS + flux spectral au-dessus des seuils
   const now = performance.now();
