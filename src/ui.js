@@ -179,14 +179,9 @@ if (sensSlider) {
   sensSlider.addEventListener('input', (e) => applySens(parseInt(e.target.value, 10)));
 }
 
-// Debug : logger les 10 premiers onsets avec leurs features
+// Compteur d'onsets
 let onsetCount = 0;
-onOnset((data) => {
-  onsetCount++;
-  if (onsetCount <= 10) {
-    log(`#${onsetCount} mfcc[0]=${data.mfcc[0].toFixed(2)} mfcc[1]=${data.mfcc[1].toFixed(2)}`);
-  }
-});
+onOnset(() => { onsetCount++; });
 
 // ——— Pré-enregistrement 5s ———
 const btnPreRecord = document.getElementById('btnPreRecord');
