@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-import { startMicrophone, onOnset, onRMS, setSensitivity, recordSnapshot, getConfig } from './audio.js';
+import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
 const navButtons = document.querySelectorAll('nav button');
@@ -134,38 +134,49 @@ export function drawWaveform(dataArray) {
   ctx.shadowBlur = 0;
 }
 
-// VU-meter RMS + affichage live RMS/Flux (peak-hold sur 500ms)
+// VU-meter + live metrics via POLLING (plus fiable que le callback onRMS)
 const rmsMeter = document.getElementById('rmsMeter');
 const metricsEl = document.getElementById('liveMetrics');
 let rmsSmoothed = 0;
 let peakRms = 0, peakFlux = 0, peakSince = 0;
 
-onRMS((rms, flux) => {
-  // Peak-follower pour le VU-meter
+function metricsLoop() {
+  requestAnimationFrame(metricsLoop);
+  const m = getMetrics();
+  const { rms, flux, frameCount } = m;
+
+  // VU-meter
   rmsSmoothed = Math.max(rms, rmsSmoothed * 0.85);
   const normalized = Math.min(1, Math.pow(rmsSmoothed * 6, 0.6));
   if (rmsMeter) rmsMeter.style.height = `${normalized * 100}%`;
 
-  // Peak-hold 500ms pour lisibilité
+  // Peak-hold 500ms
   const now = performance.now();
   if (now - peakSince > 500) {
-    peakRms = rms; peakFlux = flux ?? 0; peakSince = now;
+    peakRms = rms; peakFlux = flux; peakSince = now;
   } else {
     peakRms = Math.max(peakRms, rms);
-    peakFlux = Math.max(peakFlux, flux ?? 0);
+    peakFlux = Math.max(peakFlux, flux);
   }
+
   if (metricsEl) {
-    const cfg = getConfig();
-    const rmsOk = peakRms > cfg.rmsThreshold;
-    const fluxOk = peakFlux > cfg.fluxThreshold;
-    metricsEl.innerHTML =
-      `<span class="${rmsOk ? 'ok' : 'ko'}">RMS ${peakRms.toFixed(4)}</span> ` +
-      `<span class="sep">/</span> ` +
-      `<span class="${fluxOk ? 'ok' : 'ko'}">Flux ${peakFlux.toFixed(4)}</span> ` +
-      `<span class="sep">· seuils</span> ` +
-      `${cfg.rmsThreshold.toFixed(4)} / ${cfg.fluxThreshold.toFixed(4)}`;
+    if (frameCount === 0) {
+      metricsEl.innerHTML = '<span class="ko">En attente du micro…</span>';
+    } else {
+      const cfg = getConfig();
+      const rmsOk = peakRms > cfg.rmsThreshold;
+      const fluxOk = peakFlux > cfg.fluxThreshold;
+      metricsEl.innerHTML =
+        `<span class="${rmsOk ? 'ok' : 'ko'}">RMS ${peakRms.toFixed(4)}</span> ` +
+        `<span class="sep">/</span> ` +
+        `<span class="${fluxOk ? 'ok' : 'ko'}">Flux ${peakFlux.toFixed(4)}</span> ` +
+        `<span class="sep">· seuils</span> ` +
+        `${cfg.rmsThreshold.toFixed(4)} / ${cfg.fluxThreshold.toFixed(4)} ` +
+        `<span class="sep">· frames</span> ${frameCount}`;
+    }
   }
-});
+}
+metricsLoop();
 
 // Slider sensibilité
 const sensSlider = document.getElementById('sensSlider');
@@ -177,6 +188,18 @@ if (sensSlider) {
   };
   applySens(parseInt(sensSlider.value, 10));
   sensSlider.addEventListener('input', (e) => applySens(parseInt(e.target.value, 10)));
+}
+
+// Slider gain micro
+const gainSlider = document.getElementById('gainSlider');
+const gainValue = document.getElementById('gainValue');
+if (gainSlider) {
+  const applyGain = (v) => {
+    setInputGain(v);
+    gainValue.textContent = `${v}×`;
+  };
+  applyGain(parseFloat(gainSlider.value));
+  gainSlider.addEventListener('input', (e) => applyGain(parseFloat(e.target.value)));
 }
 
 // Compteur d'onsets

@@ -9,6 +9,8 @@ let analyser = null;
 let stream = null;
 let sourceNode = null;
 let highpassFilter = null;
+let gainNode = null;
+let recordDestination = null;
 
 // Seuils calibrés pour notre calcul maison (différent de l'échelle Meyda)
 const CONFIG = {
@@ -17,11 +19,16 @@ const CONFIG = {
   fluxThreshold: 0.006,
   minOnsetInterval: 40,       // ms entre 2 onsets (anti-rebond, ~16e @ 180bpm)
   highpassFreq: 80,
+  inputGain: 3.0,             // amplification du signal micro (1-10)
 };
 
 let lastOnsetTime = 0;
 const onsetCallbacks = [];
 const rmsCallbacks = [];
+
+// État live pour polling depuis l'UI (failsafe si les callbacks déconnent)
+let lastMetrics = { rms: 0, flux: 0, frameCount: 0, ts: 0 };
+export function getMetrics() { return lastMetrics; }
 
 export function onOnset(cb) { onsetCallbacks.push(cb); }
 export function onRMS(cb) { rmsCallbacks.push(cb); }
@@ -33,6 +40,12 @@ export function setSensitivity(level) {
   const curve = Math.pow(k, 1.3);
   CONFIG.rmsThreshold = 0.05 * (1 - curve) + 0.0015 * curve;   // 0.05 → 0.0015
   CONFIG.fluxThreshold = 0.08 * (1 - curve) + 0.0005 * curve;  // 0.08 → 0.0005
+}
+
+// Gain d'entrée du micro (1-10) — applique un multiplicateur via GainNode
+export function setInputGain(g) {
+  CONFIG.inputGain = Math.max(0, Math.min(10, g));
+  if (gainNode) gainNode.gain.value = CONFIG.inputGain;
 }
 
 export async function startMicrophone() {
@@ -58,13 +71,23 @@ export async function startMicrophone() {
     highpassFilter.type = 'highpass';
     highpassFilter.frequency.value = CONFIG.highpassFreq;
 
+    // Amplification du signal micro
+    gainNode = audioContext.createGain();
+    gainNode.gain.value = CONFIG.inputGain;
+
     analyser = audioContext.createAnalyser();
     analyser.fftSize = CONFIG.fftSize;
     // Crucial : 0 = pas de lissage temporel sur le spectre → flux fiable
     analyser.smoothingTimeConstant = 0;
 
+    // Destination pour le pré-enregistrement (capte l'audio post-gain)
+    recordDestination = audioContext.createMediaStreamDestination();
+
+    // Chaîne : mic → highpass → gain → { analyser, recordDestination }
     sourceNode.connect(highpassFilter);
-    highpassFilter.connect(analyser);
+    highpassFilter.connect(gainNode);
+    gainNode.connect(analyser);
+    gainNode.connect(recordDestination);
 
     startAnalysisLoop();
     log('Analyse lancée — parle ou beatbox, tu devrais voir les valeurs monter');
@@ -118,6 +141,14 @@ function startAnalysisLoop() {
     prevFreq.set(freqData);
     hasPrev = true;
 
+    // État live pour polling (failsafe pour UI)
+    lastMetrics = {
+      rms,
+      flux,
+      frameCount: lastMetrics.frameCount + 1,
+      ts: performance.now(),
+    };
+
     // Broadcast pour VU-meter / metrics
     rmsCallbacks.forEach(cb => cb(rms, flux));
 
@@ -149,11 +180,12 @@ export function getConfig() { return CONFIG; }
 export function setConfig(k, v) { CONFIG[k] = v; }
 
 // Pré-enregistrement : capture durationMs + compte onsets pendant la fenêtre
+// Utilise recordDestination.stream → audio post-gain (plus audible à la relecture)
 export async function recordSnapshot(durationMs = 5000) {
-  if (!stream) throw new Error('Active le micro d\'abord');
+  if (!recordDestination) throw new Error('Active le micro d\'abord');
 
   const chunks = [];
-  const recorder = new MediaRecorder(stream);
+  const recorder = new MediaRecorder(recordDestination.stream);
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
   const startT = performance.now();
