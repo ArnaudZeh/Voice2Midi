@@ -253,8 +253,9 @@ if (btnPreRecord) {
 
 // ——— Timeline MIDI rolling (affiche les onsets comme notes sur piano-roll) ———
 const notesCanvas = document.getElementById('notesCanvas');
-let TIMELINE_MS = 2000; // fenêtre visible — contrôlée par le slider zoom
-const noteHistory = []; // { time, velocity, railIdx }
+let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le slider zoom
+const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
+const noteHistory = [];         // { time, velocity, railIdx }
 
 // Heuristique de classification basée sur le spectral centroid (Hz)
 // Kick < 800 Hz | Snare 800-3500 Hz | Hihat fermé 3500-7000 Hz | Hihat ouvert > 7000 Hz
@@ -280,6 +281,7 @@ if (zoomSlider) {
   };
   applyZoom(parseFloat(zoomSlider.value));
   zoomSlider.addEventListener('input', (e) => applyZoom(parseFloat(e.target.value)));
+  zoomSlider.addEventListener('change', (e) => applyZoom(parseFloat(e.target.value)));
 }
 
 if (notesCanvas) {
@@ -302,8 +304,8 @@ if (notesCanvas) {
     const w = rect.width, h = rect.height;
     const now = performance.now();
 
-    // Purge notes trop vieilles
-    while (noteHistory.length && now - noteHistory[0].time > TIMELINE_MS) {
+    // Purge uniquement le buffer max — pas la fenêtre affichée
+    while (noteHistory.length && now - noteHistory[0].time > MAX_HISTORY_MS) {
       noteHistory.shift();
     }
 
@@ -339,6 +341,7 @@ if (notesCanvas) {
     // Dessin des notes — rail déterminé par heuristique spectral centroid
     for (const n of noteHistory) {
       const age = now - n.time;
+      if (age > TIMELINE_MS) continue; // hors fenêtre, on skip sans supprimer
       const x = w - (age / TIMELINE_MS) * w;
       const railIdx = n.railIdx ?? (rails - 1);
       const rowY = ((railIdx + 0.5) / rails) * h;

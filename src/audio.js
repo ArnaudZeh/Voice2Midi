@@ -6,6 +6,7 @@ import { log, flashOnset, drawWaveform } from './ui.js';
 
 let audioContext = null;
 let analyser = null;
+let classifyAnalyser = null; // Lissé, pour le centroid de classification
 let stream = null;
 let sourceNode = null;
 let highpassFilter = null;
@@ -80,13 +81,19 @@ export async function startMicrophone() {
     // Crucial : 0 = pas de lissage temporel sur le spectre → flux fiable
     analyser.smoothingTimeConstant = 0;
 
+    // Second analyser lissé pour la classification (spectre stable, pas instantané)
+    classifyAnalyser = audioContext.createAnalyser();
+    classifyAnalyser.fftSize = CONFIG.fftSize;
+    classifyAnalyser.smoothingTimeConstant = 0.7;
+
     // Destination pour le pré-enregistrement (capte l'audio post-gain)
     recordDestination = audioContext.createMediaStreamDestination();
 
-    // Chaîne : mic → highpass → gain → { analyser, recordDestination }
+    // Chaîne : mic → highpass → gain → { analyser, classifyAnalyser, recordDestination }
     sourceNode.connect(highpassFilter);
     highpassFilter.connect(gainNode);
     gainNode.connect(analyser);
+    gainNode.connect(classifyAnalyser);
     gainNode.connect(recordDestination);
 
     startAnalysisLoop();
@@ -101,7 +108,7 @@ export async function startMicrophone() {
 export function stopMicrophone() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (audioContext) audioContext.close();
-  stream = null; audioContext = null; analyser = null;
+  stream = null; audioContext = null; analyser = null; classifyAnalyser = null;
   log('Micro arrêté');
 }
 
@@ -110,6 +117,7 @@ function startAnalysisLoop() {
   const timeData = new Uint8Array(analyser.fftSize);
   const freqData = new Uint8Array(analyser.frequencyBinCount);
   const prevFreq = new Uint8Array(analyser.frequencyBinCount);
+  const classifyFreqData = new Uint8Array(classifyAnalyser.frequencyBinCount);
   let hasPrev = false;
 
   function tick() {
@@ -160,12 +168,13 @@ function startAnalysisLoop() {
         elapsed > CONFIG.minOnsetInterval) {
       lastOnsetTime = now;
 
-      // Spectral centroid (Hz) — centre de masse du spectre, discrimine kick/snare/hihat
-      const binHz = (audioContext.sampleRate / 2) / freqData.length;
+      // Spectral centroid sur le spectre lissé (plus stable que l'instantané à l'onset)
+      classifyAnalyser.getByteFrequencyData(classifyFreqData);
+      const binHz = (audioContext.sampleRate / 2) / classifyFreqData.length;
       let weightedSum = 0, totalEnergy = 0;
-      for (let i = 0; i < freqData.length; i++) {
-        weightedSum += freqData[i] * i * binHz;
-        totalEnergy += freqData[i];
+      for (let i = 0; i < classifyFreqData.length; i++) {
+        weightedSum += classifyFreqData[i] * i * binHz;
+        totalEnergy += classifyFreqData[i];
       }
       const spectralCentroid = totalEnergy > 0 ? weightedSum / totalEnergy : 0;
 
