@@ -358,7 +358,7 @@
 </head>
 <body>
   <header>
-    <h1>Beatbox<span>2</span>MIDI <span style="font-size:0.7rem;color:var(--text-dim);font-weight:400;margin-left:0.5rem;">v0.4</span></h1>
+    <h1>Beatbox<span>2</span>MIDI <span style="font-size:0.7rem;color:var(--text-dim);font-weight:400;margin-left:0.5rem;">v0.5</span></h1>
   </header>
 
   <main>
@@ -414,7 +414,12 @@
         <div class="notes-timeline">
           <canvas id="notesCanvas"></canvas>
         </div>
-        <p class="status">Les onsets défilent de droite à gauche — prochainement classés kick/snare/hh</p>
+        <div class="sens-row" style="margin-top:0.75rem;">
+          <label for="zoomSlider">Fenêtre</label>
+          <input type="range" id="zoomSlider" min="0.5" max="6" step="0.5" value="2">
+          <span class="sens-value" id="zoomValue">2s</span>
+        </div>
+        <p class="status">Heuristique centroid · bleu=kick · rouge=snare · vert=hh fermé · orange=hh ouvert</p>
       </div>
 
       <div class="card">

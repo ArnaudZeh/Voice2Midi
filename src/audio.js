@@ -159,17 +159,33 @@ function startAnalysisLoop() {
         flux > CONFIG.fluxThreshold &&
         elapsed > CONFIG.minOnsetInterval) {
       lastOnsetTime = now;
+
+      // Spectral centroid (Hz) — centre de masse du spectre, discrimine kick/snare/hihat
+      const binHz = (audioContext.sampleRate / 2) / freqData.length;
+      let weightedSum = 0, totalEnergy = 0;
+      for (let i = 0; i < freqData.length; i++) {
+        weightedSum += freqData[i] * i * binHz;
+        totalEnergy += freqData[i];
+      }
+      const spectralCentroid = totalEnergy > 0 ? weightedSum / totalEnergy : 0;
+
+      // ZCR — taux de passage par zéro, élevé pour les sons à haute fréquence (hihat)
+      let zcr = 0;
+      for (let i = 1; i < timeData.length; i++) {
+        if ((timeData[i] - 128 >= 0) !== (timeData[i - 1] - 128 >= 0)) zcr++;
+      }
+      zcr /= timeData.length;
+
       const onsetData = {
         timestamp: now,
         rms,
         spectralFlux: flux,
-        // Placeholders pour compat future (remplacés par Meyda en phase 2)
+        spectralCentroid,
+        zcr,
         mfcc: null,
-        spectralCentroid: null,
-        zcr: null,
       };
       flashOnset();
-      log(`Onset RMS=${rms.toFixed(4)} flux=${flux.toFixed(4)}`);
+      log(`Onset RMS=${rms.toFixed(4)} flux=${flux.toFixed(4)} centroid=${Math.round(spectralCentroid)}Hz zcr=${zcr.toFixed(3)}`);
       onsetCallbacks.forEach(cb => cb(onsetData));
     }
   }

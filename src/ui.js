@@ -253,12 +253,34 @@ if (btnPreRecord) {
 
 // ——— Timeline MIDI rolling (affiche les onsets comme notes sur piano-roll) ———
 const notesCanvas = document.getElementById('notesCanvas');
-const TIMELINE_MS = 6000; // fenêtre visible (6s défilent en continu)
-const noteHistory = []; // { time, velocity }
+let TIMELINE_MS = 2000; // fenêtre visible — contrôlée par le slider zoom
+const noteHistory = []; // { time, velocity, railIdx }
+
+// Heuristique de classification basée sur le spectral centroid (Hz)
+// Kick < 800 Hz | Snare 800-3500 Hz | Hihat fermé 3500-7000 Hz | Hihat ouvert > 7000 Hz
+function classifyOnset(centroid, zcr) {
+  if (centroid < 800)  return 3; // Kick
+  if (centroid < 3500) return 2; // Snare
+  if (centroid < 7000) return 1; // Hi-Hat Closed
+  return 0;                      // Hi-Hat Open
+}
 
 onOnset((data) => {
-  noteHistory.push({ time: data.timestamp, velocity: data.rms });
+  const railIdx = classifyOnset(data.spectralCentroid, data.zcr);
+  noteHistory.push({ time: data.timestamp, velocity: data.rms, railIdx });
 });
+
+// Slider zoom timeline
+const zoomSlider = document.getElementById('zoomSlider');
+const zoomValue = document.getElementById('zoomValue');
+if (zoomSlider) {
+  const applyZoom = (v) => {
+    TIMELINE_MS = v * 1000;
+    zoomValue.textContent = `${v}s`;
+  };
+  applyZoom(parseFloat(zoomSlider.value));
+  zoomSlider.addEventListener('input', (e) => applyZoom(parseFloat(e.target.value)));
+}
 
 if (notesCanvas) {
   const nctx = notesCanvas.getContext('2d');
@@ -314,11 +336,11 @@ if (notesCanvas) {
     nctx.stroke();
     nctx.setLineDash([]);
 
-    // Dessin des notes (pas de classification pour l'instant → tout sur rail Kick)
+    // Dessin des notes — rail déterminé par heuristique spectral centroid
     for (const n of noteHistory) {
       const age = now - n.time;
       const x = w - (age / TIMELINE_MS) * w;
-      const railIdx = rails - 1; // kick par défaut en attendant classif
+      const railIdx = n.railIdx ?? (rails - 1);
       const rowY = ((railIdx + 0.5) / rails) * h;
       const vel = Math.min(1, n.velocity * 10);
       const noteH = Math.max(10, vel * (h / rails) * 0.8);
