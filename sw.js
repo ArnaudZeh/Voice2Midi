@@ -1,5 +1,5 @@
 // sw.js — Service Worker pour PWA offline-first
-const CACHE_NAME = 'beatbox2midi-v8';
+const CACHE_NAME = 'beatbox2midi-v9';
 const ASSETS = [
   './',
   './index.html',

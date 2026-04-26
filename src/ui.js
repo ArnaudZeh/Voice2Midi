@@ -257,16 +257,16 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.8
-// cymbal  : zcr > 0.10 ou hilo > 1.5 (tsss → ZCR élevé, high très dominant)
-// kick    : hilo < 1.35 ET mid pas beaucoup plus fort que low (dum/tum = résonance basse)
-//           → exclut les ta/ka dont le "a" booste le mid (mid > low * 1.15)
+// Heuristique v0.9
+// cymbal  : ZCR pleine-fenêtre élevé → son sibilant soutenu (tsss remplit les 2048 samples)
+//           tsss ≈ 0.15-0.60 | ta/ka ≈ 0.02-0.08 | dum/tum ≈ 0.01-0.04
+// kick    : hilo < 1.35 ET mid proche de low (dum/tum résonance grave vs ta/ka formant "a")
 // snare   : défaut
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
   const hilo = highAvg / (lowAvg || 1);
-  if (zcr > 0.10 || hilo > 1.5) return hilo > 2.0 || zcr > 0.30 ? 0 : 1; // HH open / closed
-  if (hilo < 1.35 && midAvg < lowAvg * 1.15) return 3;                    // Kick
-  return 2;                                                                 // Snare
+  if (zcr > 0.12) return hilo > 2.0 || zcr > 0.30 ? 0 : 1; // HH open / closed
+  if (hilo < 1.35 && midAvg < lowAvg * 1.10) return 3;      // Kick
+  return 2;                                                  // Snare
 }
 
 // Cooldown par classe — évite qu'un seul tsss génère 3 notes

@@ -178,17 +178,14 @@ function startAnalysisLoop() {
       const midAvg  = midE  / (midEnd - lowEnd);
       const highAvg = highE / (freqData.length - midEnd);
 
-      // ZCR sur les échantillons actifs seulement (évite la dilution par le silence du frame)
-      let zcr = 0, zcrCount = 0;
+      // ZCR pleine fenêtre (2048 samples) — la dilution par le silence EST voulue :
+      // tsss soutenu remplit la fenêtre → ZCR élevé (0.15-0.60)
+      // ta/ka et dum/tum sont des transitoires courts → ZCR dilué bas (0.02-0.08)
+      let zcr = 0;
       for (let i = 1; i < timeData.length; i++) {
-        const curr = timeData[i] - 128;
-        const prev = timeData[i - 1] - 128;
-        if (Math.abs(curr) > 8 || Math.abs(prev) > 8) {
-          if ((curr >= 0) !== (prev >= 0)) zcr++;
-          zcrCount++;
-        }
+        if ((timeData[i] - 128 >= 0) !== (timeData[i - 1] - 128 >= 0)) zcr++;
       }
-      zcr = zcrCount > 20 ? zcr / zcrCount : 0;
+      zcr /= timeData.length;
 
       const onsetData = {
         timestamp: now,
