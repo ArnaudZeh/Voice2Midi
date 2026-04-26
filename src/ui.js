@@ -257,19 +257,22 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique : énergie moyenne par bande (normalisée par nb de bins)
-// low=80-600Hz · mid=600-4000Hz · high=4000Hz+
-// On compare les moyennes pour éviter le biais "beaucoup de bins dans les aigus"
-function classifyOnset({ lowAvg, midAvg, highAvg }) {
-  const dom = Math.max(lowAvg, midAvg, highAvg);
-  if (dom === lowAvg)  return 3; // Kick  (basse fréquence dominante)
-  if (dom === highAvg) return (highAvg > midAvg * 1.5) ? 0 : 1; // HH open / closed
-  return 2;                      // Snare (médium dominant)
+// Heuristique v0.7 : ratio high/low + ZCR
+// dum/tum  → hilo < 1.25 (low monte, ratio bas)
+// sss/tss  → hilo > 1.5 ou zcr > 0.10 (aigus clairs + haut ZCR)
+// ta/ka    → entre les deux → snare
+function classifyOnset({ lowAvg, highAvg, zcr }) {
+  const hilo = highAvg / (lowAvg || 1);
+  if (zcr > 0.10 || hilo > 1.5) return hilo > 2.0 || zcr > 0.30 ? 0 : 1; // HH open / closed
+  if (hilo < 1.25)               return 3; // Kick
+  return 2;                                // Snare
 }
 
+const RAIL_NAMES = ['HH-Open', 'HH-Closed', 'Snare', 'Kick'];
 onOnset((data) => {
   const railIdx = classifyOnset(data);
   noteHistory.push({ time: data.timestamp, velocity: data.rms, railIdx });
+  log(`  → ${RAIL_NAMES[railIdx]}`);
 });
 
 // Slider zoom timeline

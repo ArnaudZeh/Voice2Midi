@@ -178,15 +178,27 @@ function startAnalysisLoop() {
       const midAvg  = midE  / (midEnd - lowEnd);
       const highAvg = highE / (freqData.length - midEnd);
 
+      // ZCR sur les échantillons actifs seulement (évite la dilution par le silence du frame)
+      let zcr = 0, zcrCount = 0;
+      for (let i = 1; i < timeData.length; i++) {
+        const curr = timeData[i] - 128;
+        const prev = timeData[i - 1] - 128;
+        if (Math.abs(curr) > 8 || Math.abs(prev) > 8) {
+          if ((curr >= 0) !== (prev >= 0)) zcr++;
+          zcrCount++;
+        }
+      }
+      zcr = zcrCount > 20 ? zcr / zcrCount : 0;
+
       const onsetData = {
         timestamp: now,
         rms,
         spectralFlux: flux,
-        lowAvg, midAvg, highAvg,
+        lowAvg, midAvg, highAvg, zcr,
         mfcc: null,
       };
       flashOnset();
-      log(`Onset RMS=${rms.toFixed(4)} flux=${flux.toFixed(4)} low=${lowAvg.toFixed(1)} mid=${midAvg.toFixed(1)} high=${highAvg.toFixed(1)}`);
+      log(`Onset RMS=${rms.toFixed(4)} low=${lowAvg.toFixed(1)} mid=${midAvg.toFixed(1)} high=${highAvg.toFixed(1)} zcr=${zcr.toFixed(3)}`);
       onsetCallbacks.forEach(cb => cb(onsetData));
     }
   }
