@@ -257,17 +257,18 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique de classification basée sur le spectral centroid (Hz)
-// Kick < 800 Hz | Snare 800-3500 Hz | Hihat fermé 3500-7000 Hz | Hihat ouvert > 7000 Hz
-function classifyOnset(centroid, zcr) {
-  if (centroid < 800)  return 3; // Kick
-  if (centroid < 3500) return 2; // Snare
-  if (centroid < 7000) return 1; // Hi-Hat Closed
-  return 0;                      // Hi-Hat Open
+// Heuristique : énergie moyenne par bande (normalisée par nb de bins)
+// low=80-600Hz · mid=600-4000Hz · high=4000Hz+
+// On compare les moyennes pour éviter le biais "beaucoup de bins dans les aigus"
+function classifyOnset({ lowAvg, midAvg, highAvg }) {
+  const dom = Math.max(lowAvg, midAvg, highAvg);
+  if (dom === lowAvg)  return 3; // Kick  (basse fréquence dominante)
+  if (dom === highAvg) return (highAvg > midAvg * 1.5) ? 0 : 1; // HH open / closed
+  return 2;                      // Snare (médium dominant)
 }
 
 onOnset((data) => {
-  const railIdx = classifyOnset(data.spectralCentroid, data.zcr);
+  const railIdx = classifyOnset(data);
   noteHistory.push({ time: data.timestamp, velocity: data.rms, railIdx });
 });
 

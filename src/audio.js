@@ -6,7 +6,6 @@ import { log, flashOnset, drawWaveform } from './ui.js';
 
 let audioContext = null;
 let analyser = null;
-let classifyAnalyser = null; // Lissé, pour le centroid de classification
 let stream = null;
 let sourceNode = null;
 let highpassFilter = null;
@@ -81,19 +80,13 @@ export async function startMicrophone() {
     // Crucial : 0 = pas de lissage temporel sur le spectre → flux fiable
     analyser.smoothingTimeConstant = 0;
 
-    // Second analyser lissé pour la classification (spectre stable, pas instantané)
-    classifyAnalyser = audioContext.createAnalyser();
-    classifyAnalyser.fftSize = CONFIG.fftSize;
-    classifyAnalyser.smoothingTimeConstant = 0.7;
-
     // Destination pour le pré-enregistrement (capte l'audio post-gain)
     recordDestination = audioContext.createMediaStreamDestination();
 
-    // Chaîne : mic → highpass → gain → { analyser, classifyAnalyser, recordDestination }
+    // Chaîne : mic → highpass → gain → { analyser, recordDestination }
     sourceNode.connect(highpassFilter);
     highpassFilter.connect(gainNode);
     gainNode.connect(analyser);
-    gainNode.connect(classifyAnalyser);
     gainNode.connect(recordDestination);
 
     startAnalysisLoop();
@@ -108,7 +101,7 @@ export async function startMicrophone() {
 export function stopMicrophone() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (audioContext) audioContext.close();
-  stream = null; audioContext = null; analyser = null; classifyAnalyser = null;
+  stream = null; audioContext = null; analyser = null;
   log('Micro arrêté');
 }
 
@@ -117,7 +110,6 @@ function startAnalysisLoop() {
   const timeData = new Uint8Array(analyser.fftSize);
   const freqData = new Uint8Array(analyser.frequencyBinCount);
   const prevFreq = new Uint8Array(analyser.frequencyBinCount);
-  const classifyFreqData = new Uint8Array(classifyAnalyser.frequencyBinCount);
   let hasPrev = false;
 
   function tick() {
@@ -168,33 +160,33 @@ function startAnalysisLoop() {
         elapsed > CONFIG.minOnsetInterval) {
       lastOnsetTime = now;
 
-      // Spectral centroid sur le spectre lissé (plus stable que l'instantané à l'onset)
-      classifyAnalyser.getByteFrequencyData(classifyFreqData);
-      const binHz = (audioContext.sampleRate / 2) / classifyFreqData.length;
-      let weightedSum = 0, totalEnergy = 0;
-      for (let i = 0; i < classifyFreqData.length; i++) {
-        weightedSum += classifyFreqData[i] * i * binHz;
-        totalEnergy += classifyFreqData[i];
-      }
-      const spectralCentroid = totalEnergy > 0 ? weightedSum / totalEnergy : 0;
+      // Classification par énergie moyenne par bande (spectre instantané, smoothing=0)
+      // Normalisée par nombre de bins pour éviter que la bande haute gagne par défaut
+      const sr = audioContext.sampleRate;
+      const binHz = (sr / 2) / freqData.length;
+      const lowEnd  = Math.floor(600  / binHz); // ~28 bins  (80–600 Hz)
+      const midEnd  = Math.floor(4000 / binHz); // ~186 bins (600–4000 Hz)
 
-      // ZCR — taux de passage par zéro, élevé pour les sons à haute fréquence (hihat)
-      let zcr = 0;
-      for (let i = 1; i < timeData.length; i++) {
-        if ((timeData[i] - 128 >= 0) !== (timeData[i - 1] - 128 >= 0)) zcr++;
+      let lowE = 0, midE = 0, highE = 0;
+      for (let i = 1; i < freqData.length; i++) {
+        const e = freqData[i];
+        if (i < lowEnd)      lowE  += e;
+        else if (i < midEnd) midE  += e;
+        else                 highE += e;
       }
-      zcr /= timeData.length;
+      const lowAvg  = lowE  / (lowEnd - 1);
+      const midAvg  = midE  / (midEnd - lowEnd);
+      const highAvg = highE / (freqData.length - midEnd);
 
       const onsetData = {
         timestamp: now,
         rms,
         spectralFlux: flux,
-        spectralCentroid,
-        zcr,
+        lowAvg, midAvg, highAvg,
         mfcc: null,
       };
       flashOnset();
-      log(`Onset RMS=${rms.toFixed(4)} flux=${flux.toFixed(4)} centroid=${Math.round(spectralCentroid)}Hz zcr=${zcr.toFixed(3)}`);
+      log(`Onset RMS=${rms.toFixed(4)} flux=${flux.toFixed(4)} low=${lowAvg.toFixed(1)} mid=${midAvg.toFixed(1)} high=${highAvg.toFixed(1)}`);
       onsetCallbacks.forEach(cb => cb(onsetData));
     }
   }
