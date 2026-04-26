@@ -257,21 +257,29 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.7 : ratio high/low + ZCR
-// dum/tum  → hilo < 1.25 (low monte, ratio bas)
-// sss/tss  → hilo > 1.5 ou zcr > 0.10 (aigus clairs + haut ZCR)
-// ta/ka    → entre les deux → snare
-function classifyOnset({ lowAvg, highAvg, zcr }) {
+// Heuristique v0.8
+// cymbal  : zcr > 0.10 ou hilo > 1.5 (tsss → ZCR élevé, high très dominant)
+// kick    : hilo < 1.35 ET mid pas beaucoup plus fort que low (dum/tum = résonance basse)
+//           → exclut les ta/ka dont le "a" booste le mid (mid > low * 1.15)
+// snare   : défaut
+function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
   const hilo = highAvg / (lowAvg || 1);
   if (zcr > 0.10 || hilo > 1.5) return hilo > 2.0 || zcr > 0.30 ? 0 : 1; // HH open / closed
-  if (hilo < 1.25)               return 3; // Kick
-  return 2;                                // Snare
+  if (hilo < 1.35 && midAvg < lowAvg * 1.15) return 3;                    // Kick
+  return 2;                                                                 // Snare
 }
+
+// Cooldown par classe — évite qu'un seul tsss génère 3 notes
+const lastClassTime = [0, 0, 0, 0];
+const CLASS_COOLDOWN_MS = [120, 120, 80, 60]; // HH-open, HH-closed, Snare, Kick
 
 const RAIL_NAMES = ['HH-Open', 'HH-Closed', 'Snare', 'Kick'];
 onOnset((data) => {
   const railIdx = classifyOnset(data);
-  noteHistory.push({ time: data.timestamp, velocity: data.rms, railIdx });
+  const now = data.timestamp;
+  if (now - lastClassTime[railIdx] < CLASS_COOLDOWN_MS[railIdx]) return;
+  lastClassTime[railIdx] = now;
+  noteHistory.push({ time: now, velocity: data.rms, railIdx });
   log(`  → ${RAIL_NAMES[railIdx]}`);
 });
 
