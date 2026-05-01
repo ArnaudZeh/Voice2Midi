@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.3'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.9.4'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -258,15 +258,14 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9.3
-// china (0) : tch — ZCR > 0.08 (affriquée courte, "ch" dilué dans fenêtre 46ms)
-// snare (1) : ta aigu — hautes fréqs > basses (hilo > 1.0), son brillant
-// kick  (2) : ta grave / dr (roulement langue) — graves dominants (hilo ≤ 1.0)
+// Heuristique v0.9.4
+// china (0) : tch — ZCR > 0.06 (seuil très permissif, affriquée courte dilue le ZCR)
+// snare (1) : ta aigu — mids pas bass-dominant (midAvg > lowAvg * 0.85)
+// kick  (2) : ta grave / dr — lows vraiment dominants (lowAvg > midAvg * 1.18)
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
-  const hilo = highAvg / (lowAvg || 1);
-  if (zcr > 0.08) return 0;    // China (tch — seuil abaissé pour affriquée courte)
-  if (hilo > 1.0)  return 1;   // Snare (ta aigu — highs > lows)
-  return 2;                    // Kick (ta grave / dr — lows dominent)
+  if (zcr > 0.06) return 0;              // China (tch)
+  if (midAvg > lowAvg * 0.85) return 1;  // Snare (ta aigu — pas bass-dominant)
+  return 2;                              // Kick (ta grave / dr)
 }
 
 // Cooldown par classe
