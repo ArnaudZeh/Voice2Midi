@@ -1,116 +1,258 @@
-# Knowledge Graph — Beatbox2MIDI
-Generated: 2026-04-26 | Version courante: v0.8 | 7 fichiers source
+# Voice2Midi Knowledge Graph Report
+**Generated:** 2026-04-30 | **Version:** v0.9.3 | **Status:** Phase 1 POC (Audio Detection)
+
+> **Usage :** Lire ce fichier en PREMIER avant tout grep/glob. Contient tous les seuils, fonctions, et dépendances avec numéros de ligne exacts.
 
 ---
 
-## God Nodes (nœuds les plus connectés)
+## 1. PROJECT OVERVIEW
 
-1. **`src/audio.js`** — 8 connexions sortantes, importé par `ui.js`
-   - Nœud central du pipeline audio. Exporte : `startMicrophone`, `onOnset`, `setSensitivity`, `setInputGain`, `recordSnapshot`, `getMetrics`, `getConfig`
-   - Contient la boucle d'analyse 60fps (waveform + RMS + spectral flux + onset + classification features)
-   - Chaîne WebAudio : `mic → highpassFilter(80Hz) → gainNode → { analyser(smoothing=0), recordDestination }`
+**Name:** Beatbox2MIDI
+**Purpose:** Transformer le beatbox en patterns MIDI de batterie, temps réel sur smartphone PWA
+**Stack:** HTML/CSS/JS vanilla, Web Audio API, IndexedDB, Service Worker (PWA)
+**Déploiement:** GitHub Pages
+**User:** Arnaud (producteur metalcore/djent, Tahiti)
 
-2. **`src/ui.js`** — importe audio.js, pilote index.html complet
-   - Contient toute la logique de classification heuristique (`classifyOnset`)
-   - Gère : waveform canvas, notes canvas (timeline MIDI), sliders, pré-enregistrement, logs
-   - Point d'entrée de l'app (chargé comme module depuis index.html)
+**Phase actuelle:** Phase 1 (POC) — Onset detection + classification heuristique 3 classes
+**Complété:** Capture audio, onset detection (flux spectral + RMS), classificateur heuristique (Kick/Snare/China)
+**Pending:** ML training (Phase 2), Export MIDI (Phase 3), Polish PWA (Phase 4)
 
 ---
 
-## Communautés (clusters fonctionnels)
+## 2. GOD NODES (Composants les plus centraux)
 
-### Cluster 1 — Pipeline audio ACTIF (Phase 1 ✅)
-| Fichier | Rôle | État |
-|---------|------|------|
-| `src/audio.js` | Capture micro, onset detection, features | Complet |
-| `src/ui.js` | Classification heuristique, visualisation | En cours (tuning) |
-| `index.html` | UI, sliders, canvas, nav | Complet |
-| `sw.js` | Cache PWA offline-first | v8, cache-busted |
+| Node | Rôle | Critique |
+|------|------|---------|
+| **src/audio.js** | Capture audio, détection d'onsets, extraction features | OUI |
+| **src/ui.js** | Orchestration UI, callbacks, visualisation, timeline, classifyOnset | OUI |
+| **src/model.js** | Constantes MIDI_MAP, CLASSES, stubs ML Phase 2 | NON (squelette) |
+| **src/storage.js** | API IndexedDB | NON (dormant) |
+| **src/midi.js** | Génération MIDI, utilitaire velocity | NON (stub) |
+| **index.html** | DOM, thème visuel, canvas targets | OUI |
+| **sw.js** | Service worker, cache offline, PWA | OUI |
 
-**Pipeline de données actuel :**
+**Graphe de dépendances :**
 ```
-getUserMedia → AudioContext (44100Hz) → highpass(80Hz) → gainNode(3×)
-    → analyser (fftSize=2048, smoothing=0)
-        → tick() 60fps :
-            ├── getByteTimeDomainData → waveform + RMS + ZCR
-            ├── getByteFrequencyData  → spectral flux (onset) + band energies
-            └── onset detected → { rms, flux, lowAvg, midAvg, highAvg, zcr }
-                → classifyOnset() → railIdx (0-3)
-                → per-class cooldown (HH:120ms, Snare:80ms, Kick:60ms)
-                → noteHistory[] → canvas timeline
-```
-
-**Classification heuristique v0.8 :**
-```
-zcr > 0.10 || hilo > 1.5  → HH-Closed / HH-Open
-hilo < 1.35 && mid < low*1.15 → Kick
-default → Snare
-
-Bandes : low=80-600Hz, mid=600-4000Hz, high=4000+Hz
-binHz ≈ 21.5Hz (sampleRate=44100, fftSize=2048, binCount=1024)
+index.html → ui.js → audio.js
+                   ↘ model.js → midi.js
+sw.js (parallèle, gestion cache)
+storage.js (dormant, Phase 2)
 ```
 
-### Cluster 2 — ML Classification (Phase 2 🔜)
-| Fichier | Rôle | État |
-|---------|------|------|
-| `src/model.js` | MLP TF.js, predict(), trainModel() | Squelette |
-| `src/storage.js` | IndexedDB : samples + settings | Squelette |
+---
 
-**Architecture prévue :**
-- Input : 17 features (13 MFCC + centroid + rolloff + ZCR + RMS)
-- Dense(32, ReLU) → Dropout(0.2) → Dense(16, ReLU) → Dense(4, softmax)
-- 15-20 samples/classe, entraîné dans le navigateur
-- `CLASSES = ['kick', 'snare', 'hihat_closed', 'hihat_open']`
+## 3. COMMUNAUTÉS FONCTIONNELLES
 
-**Connexion manquante :** `audio.js` retourne `mfcc: null` — Meyda.js doit être réintroduit pour les 13 MFCC.
+### Communauté A : Acquisition & Analyse Audio
+**Fichier :** `src/audio.js`
 
-### Cluster 3 — Export MIDI (Phase 3 🔜)
-| Fichier | Rôle | État |
-|---------|------|------|
-| `src/midi.js` | buildMidiFile(), downloadMidi(), rmsToVelocity() | Squelette |
+**Fonctions clés :**
+- `startMicrophone()` (l.51–99) — init getUserMedia + chaîne Web Audio
+- `stopMicrophone()` (l.101–106)
+- `startAnalysisLoop()` (l.109–203) — **BOUCLE PRINCIPALE 60 FPS**
+- `setSensitivity(level)` (l.37–43) — courbe exponentielle rms/flux thresholds
+- `setInputGain(g)` (l.46–49)
+- `recordSnapshot(durationMs)` (l.210–235)
+- `onOnset(cb)`, `onRMS(cb)` (l.33–34) — enregistrement callbacks
 
-**Mapping GM Drums :** kick=36, snare=38, hihat_closed=42, hihat_open=46
-**Dépendance externe :** midi-writer-js (CDN jsdelivr) — pas encore chargé
-**`rmsToVelocity(rms, floor=0.01, ceiling=0.3, curve=0.7)`** — courbe de puissance non-linéaire, prête à l'emploi
+**Constantes CONFIG (l.16–23) :**
+```javascript
+CONFIG = {
+  fftSize: 2048,
+  rmsThreshold: 0.008,      // défaut sensitiv. 7/10
+  fluxThreshold: 0.006,
+  minOnsetInterval: 40,     // ms anti-rebond (~16e @ 180 BPM)
+  highpassFreq: 80,         // Hz coupe-souffle
+  inputGain: 3.0,           // multiplicateur 1–10
+}
+```
 
-### Cluster 4 — PWA Infrastructure
-| Fichier | Rôle |
-|---------|------|
-| `manifest.json` | App name, icons, theme |
-| `sw.js` | Cache offline, strategy: cache-first |
-| `docs/reaper-setup.md` | Guide Syncthing + ReaScript Windows |
+**Chaîne audio :** mic → highpass(80Hz) → gain → analyser + recordDestination
+`analyser.smoothingTimeConstant = 0` (l.81) — **AUCUN smoothing, hyper-réactif**
 
 ---
 
-## Connexions Surprenantes
+### Communauté B : UI & Visualisation
+**Fichier :** `src/ui.js`
 
-- **`midi.js` importe `model.js`** (pour `MIDI_MAP`) — mais `model.js` n'est pas encore fonctionnel. L'import fonctionne car il ne consomme que la constante statique `MIDI_MAP`.
-- **`classifyOnset()` est dans `ui.js`** au lieu de `model.js` — anomalie architecturale intentionnelle (Phase 1 heuristique vs Phase 2 ML). À déplacer dans `model.js` en Phase 2.
-- **`featuresFromOnset()` dans `model.js`** référence `onset.mfcc` (13 valeurs) qui est actuellement `null` dans tous les onsets — liera Meyda.js en Phase 2.
+**Constantes clés :**
+```javascript
+APP_VERSION = 'v0.9.3'           // l.3 — bumper à chaque modif (format 0.9.x)
+TIMELINE_MS = 2000                // l.257 — fenêtre rolling (slider 0.5–6 sec)
+MAX_HISTORY_MS = 10000            // l.258 — rétention buffer
+WAVEFORM_GAIN = 3.0               // l.74 — amplification visuelle
+RAIL_NAMES = ['China','Snare','Kick']   // l.277
+CLASS_COOLDOWN_MS = [100, 80, 40]      // l.275 — China, Snare, Kick (ms)
+```
+
+**Fonction critique : `classifyOnset()` (l.266–271) :**
+```javascript
+function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
+  const hilo = highAvg / (lowAvg || 1);
+  if (zcr > 0.08) return 0;   // China (tch — seuil abaissé pour affriquée courte)
+  if (hilo > 1.0)  return 1;  // Snare (ta aigu — highs > lows)
+  return 2;                   // Kick (ta grave / dr — lows dominent)
+}
+```
+
+**Callback onset (l.278–285) :** classifyOnset → cooldown check → noteHistory → timeline
+
+**Fonctions :**
+- `log(message)` (l.43–50)
+- `flashOnset()` (l.54–57)
+- `drawWaveform(dataArray)` (l.76–136)
+- `metricsLoop()` (l.144–180) — polling VU-meter + stats
+- `drawNotes()` (l.314–372) — piano-roll canvas 60 FPS
 
 ---
 
-## Roadmap & État
+### Communauté C : Modèle & ML (Dormant — Phase 2)
+**Fichier :** `src/model.js`
 
-| Phase | Contenu | État |
-|-------|---------|------|
-| 1 — POC audio | Capture, onset, waveform, timeline, heuristique | ✅ quasi-complet (tuning classif) |
-| 2 — ML | Train UI, MFCC (Meyda), MLP TF.js, IndexedDB | 🔜 prochain |
-| 3 — Export | Tap tempo, quantize, .mid download | 🔜 |
-| 4 — PWA polish | SW, icons, mode sombre, installation | 🔜 |
-| 5 — Extensions | Double kick, toms, basse (Pitchy.js) | 📅 futur |
+**Exports :**
+```javascript
+CLASSES = ['china', 'snare', 'kick']   // l.42
+
+MIDI_MAP = {                            // l.45–55
+  kick: 36,     // C1
+  snare: 38,    // D1
+  china: 52,    // GM Chinese Cymbal (E3)
+  tom_low: 41, tom_mid: 45, tom_high: 48,
+  crash: 49, ride: 51,
+}
+```
+- `trainModel(samples)` — TODO Phase 2
+- `predict(features)` — TODO Phase 2
+- `featuresFromOnset(onset)` (l.81–89) — vecteur 17 dimensions
 
 ---
 
-## Questions suggérées pour les prochaines sessions
-
-- "Où brancher Meyda pour les MFCC en Phase 2 ?" → `audio.js:startAnalysisLoop`, remplacer `mfcc: null`
-- "Quel est le contrat entre `audio.js` et `model.js` ?" → `onsetData` → `featuresFromOnset()` → `predict()`
-- "Comment connecter la classification ML à la timeline ?" → remplacer `classifyOnset()` dans `ui.js` par `model.predict()`
-- "Comment implémenter le tap tempo ?" → `midi.js`, capturer 3-4 timestamps, calculer BPM moyen
+### Communauté D : Export MIDI (Stub — Phase 3)
+**Fichier :** `src/midi.js`
+**Imports :** `MIDI_MAP` from model.js
+- `buildMidiFile(events, bpm, options)` — TODO Phase 3
+- `downloadMidi(blob, filename)` (l.42–49)
+- `rmsToVelocity(rms, floor, ceiling, curve)` (l.52–56) — courbe puissance x^0.7
 
 ---
 
-## Versioning SW (à incrémenter à chaque push)
+### Communauté E : Persistance (Dormant — Phase 2)
+**Fichier :** `src/storage.js`
+```javascript
+DB_NAME = 'beatbox2midi'   // l.13
+DB_VERSION = 1             // l.14
+```
 
-`sw.js CACHE_NAME = 'beatbox2midi-vN'` — actuellement **v8**. Incrémenter à chaque commit pour forcer le rechargement sur mobile.
+---
+
+### Communauté F : Service Worker & PWA
+**Fichiers :** `sw.js`, `manifest.json`
+```javascript
+CACHE_NAME = 'beatbox2midi-v13'   // sw.js:2 — sync manuel avec APP_VERSION
+```
+Stratégie : cache-first, fallback réseau.
+
+---
+
+## 4. TOUS LES SEUILS & CONSTANTES
+
+| Paramètre | Valeur | Fichier:Ligne | Notes |
+|-----------|--------|--------------|-------|
+| `APP_VERSION` | `'v0.9.3'` | ui.js:3 | Bumper à chaque modif |
+| `CACHE_NAME` | `'beatbox2midi-v13'` | sw.js:2 | Sync avec APP_VERSION |
+| `fftSize` | 2048 | audio.js:17 | Fenêtre FFT ~46ms |
+| `rmsThreshold` | 0.008 | audio.js:18 | Courbe exp. sensitiv. 1–10 |
+| `fluxThreshold` | 0.006 | audio.js:19 | Courbe exp. sensitiv. 1–10 |
+| `minOnsetInterval` | 40 ms | audio.js:20 | Anti-rebond |
+| `highpassFreq` | 80 Hz | audio.js:21 | Coupe-souffle |
+| `inputGain` | 3.0 | audio.js:22 | Slider 1–10× |
+| `smoothingTimeConstant` | 0 | audio.js:81 | **Aucun smoothing** |
+| **ZCR seuil china** | **0.08** | **ui.js:268** | Affriquée courte "tch" |
+| **hilo seuil snare** | **1.0** | **ui.js:269** | highs > lows = ta brillant |
+| `CLASS_COOLDOWN_MS[0]` | 100 ms | ui.js:275 | China |
+| `CLASS_COOLDOWN_MS[1]` | 80 ms | ui.js:275 | Snare |
+| `CLASS_COOLDOWN_MS[2]` | 40 ms | ui.js:275 | Kick (dr rapide métal) |
+| `TIMELINE_MS` | 2000 | ui.js:257 | Slider 0.5–6 sec |
+| `MAX_HISTORY_MS` | 10000 | ui.js:258 | Buffer ring |
+| `WAVEFORM_GAIN` | 3.0 | ui.js:74 | Amplif. visuelle |
+| `MAX_LOG_LINES` | 40 | ui.js:40 | Cap log |
+| `PRE_RECORD_MS` | 5000 | ui.js:215 | Snapshot 5 sec |
+| Bande low | 80–600 Hz | audio.js:167 | ~28 bins |
+| Bande mid | 600–4000 Hz | audio.js:168 | ~186 bins |
+| Bande high | 4000+ Hz | audio.js:168 | Reste des bins |
+
+---
+
+## 5. CALL GRAPH
+
+```
+index.html
+  └─ <script type="module"> ui.js
+
+ui.js
+  ├─ IMPORTS ← audio.js: startMicrophone, onOnset, onRMS, setSensitivity,
+  │                        setInputGain, recordSnapshot, getConfig, getMetrics
+  ├─ INIT: screen nav, metricsLoop (rAF), drawNotes (rAF), onOnset callback
+  └─ RUNTIME:
+      onOnset → classifyOnset() → noteHistory → drawNotes()
+      rmsCallback → metricsLoop() → VU-meter DOM
+      slider → setSensitivity() / setInputGain()
+      button → startMicrophone() / recordSnapshot()
+
+audio.js
+  ├─ startMicrophone() → getUserMedia → AudioContext → startAnalysisLoop()
+  └─ startAnalysisLoop() [60 FPS]
+      ├─ getByteTimeDomainData() → drawWaveform() [ui.js]
+      ├─ RMS → rmsCallbacks
+      ├─ Spectral flux → onset check
+      └─ ONSET: lowAvg/midAvg/highAvg/zcr → onsetCallbacks → ui.js:classifyOnset()
+```
+
+---
+
+## 6. CONNEXIONS IMPORTANTES
+
+1. **ZCR dilution intentionnelle** : ZCR sur fenêtre pleine 2048 samples → sons soutenus (china) ZCR haut, transitoires courts (kick) ZCR dilué bas
+2. **Classification dans ui.js, PAS audio.js** : séparation signal/politique, facile à remplacer par ML Phase 2
+3. **recordDestination ≠ analyser** : analyser pré-gain, recorder post-gain → thresholds calibrés sur signal non-amplifié
+4. **Sync manuel APP_VERSION / CACHE_NAME** : aucune automatisation, risque de désync si on oublie
+5. **Double callback + polling** : `onOnset()` + `onRMS()` + polling `getMetrics()` — redondance pour iOS Safari
+
+---
+
+## 7. NUMÉROS DE LIGNE CLÉS
+
+| Concept | Fichier | Ligne(s) |
+|---------|---------|---------|
+| CONFIG thresholds | audio.js | 16–23 |
+| Sensitivity curve | audio.js | 37–43 |
+| Analysis loop | audio.js | 109–203 |
+| Spectral bands | audio.js | 167–168 |
+| ZCR calculation | audio.js | 184–188 |
+| onsetData object | audio.js | 190–196 |
+| recordSnapshot() | audio.js | 210–235 |
+| APP_VERSION | ui.js | 3 |
+| drawWaveform() | ui.js | 76–136 |
+| metricsLoop() | ui.js | 144–180 |
+| classifyOnset() | ui.js | 266–271 |
+| CLASS_COOLDOWN_MS | ui.js | 275 |
+| drawNotes() | ui.js | 314–372 |
+| CLASSES | model.js | 42 |
+| MIDI_MAP | model.js | 45–55 |
+| rmsToVelocity() | midi.js | 52–56 |
+| IndexedDB schema | storage.js | 13–29 |
+| CACHE_NAME | sw.js | 2 |
+
+---
+
+## 8. VERSIONING — RÈGLE
+
+**À chaque modif, bumper deux endroits :**
+1. `APP_VERSION` dans `src/ui.js:3` → format `0.9.x`
+2. `CACHE_NAME` dans `sw.js:2` → suffixe numérique incrémental
+
+**Historique patches :**
+- `v0.9` / sw-v9 — ZCR pleine-fenêtre + cymbal ZCR-only + kick resserré
+- `v0.9.1` / sw-v10 — Fix kick (lowAvg > midAvg * 1.20)
+- `v0.9.2` / sw-v11,v12 — 3 classes China/Snare/Kick, suppression hi-hats, versioning header
+- `v0.9.3` / sw-v13 — ZCR seuil china 0.12→0.08, hilo seuil snare 1.5→1.0, graphify

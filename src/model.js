@@ -39,14 +39,13 @@
  *    - Charger au démarrage si dispo
  */
 
-export const CLASSES = ['kick', 'snare', 'hihat_closed', 'hihat_open'];
+export const CLASSES = ['china', 'snare', 'kick'];
 
 // GM Drums MIDI note mapping
 export const MIDI_MAP = {
   kick: 36,
   snare: 38,
-  hihat_closed: 42,
-  hihat_open: 46,
+  china: 52,    // GM Chinese Cymbal
   // extensions futures
   tom_low: 41,
   tom_mid: 45,

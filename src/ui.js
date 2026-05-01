@@ -1,5 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
+export const APP_VERSION = 'v0.9.3'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -257,23 +258,22 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9
-// cymbal  : ZCR pleine-fenêtre élevé → son sibilant soutenu (tsss remplit les 2048 samples)
-//           tsss ≈ 0.15-0.60 | ta/ka ≈ 0.02-0.08 | dum/tum ≈ 0.01-0.04
-// kick    : hilo < 1.35 ET mid proche de low (dum/tum résonance grave vs ta/ka formant "a")
-// snare   : défaut
+// Heuristique v0.9.3
+// china (0) : tch — ZCR > 0.08 (affriquée courte, "ch" dilué dans fenêtre 46ms)
+// snare (1) : ta aigu — hautes fréqs > basses (hilo > 1.0), son brillant
+// kick  (2) : ta grave / dr (roulement langue) — graves dominants (hilo ≤ 1.0)
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
   const hilo = highAvg / (lowAvg || 1);
-  if (zcr > 0.12) return hilo > 2.0 || zcr > 0.30 ? 0 : 1; // HH open / closed
-  if (hilo < 1.35 && midAvg < lowAvg * 1.10) return 3;      // Kick
-  return 2;                                                  // Snare
+  if (zcr > 0.08) return 0;    // China (tch — seuil abaissé pour affriquée courte)
+  if (hilo > 1.0)  return 1;   // Snare (ta aigu — highs > lows)
+  return 2;                    // Kick (ta grave / dr — lows dominent)
 }
 
-// Cooldown par classe — évite qu'un seul tsss génère 3 notes
-const lastClassTime = [0, 0, 0, 0];
-const CLASS_COOLDOWN_MS = [120, 120, 80, 60]; // HH-open, HH-closed, Snare, Kick
+// Cooldown par classe
+const lastClassTime = [0, 0, 0];
+const CLASS_COOLDOWN_MS = [100, 80, 40]; // China, Snare, Kick (40ms pour dr rapide métal)
 
-const RAIL_NAMES = ['HH-Open', 'HH-Closed', 'Snare', 'Kick'];
+const RAIL_NAMES = ['China', 'Snare', 'Kick'];
 onOnset((data) => {
   const railIdx = classifyOnset(data);
   const now = data.timestamp;
@@ -325,10 +325,10 @@ if (notesCanvas) {
     nctx.fillStyle = 'rgba(21, 21, 21, 1)';
     nctx.fillRect(0, 0, w, h);
 
-    // Grille horizontale (4 rails — 1 par classe future kick/snare/hh_c/hh_o)
-    const rails = 4;
-    const railLabels = ['Hi-Hat Open', 'Hi-Hat Closed', 'Snare', 'Kick'];
-    const railColors = ['#ffb020', '#00e5a0', '#ff3b5c', '#4f9dff'];
+    // Grille horizontale (3 rails : China / Snare / Kick)
+    const rails = 3;
+    const railLabels = ['China', 'Snare', 'Kick'];
+    const railColors = ['#ffb020', '#ff3b5c', '#4f9dff'];
     for (let i = 0; i < rails; i++) {
       const y = ((i + 0.5) / rails) * h;
       nctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
@@ -372,4 +372,7 @@ if (notesCanvas) {
   drawNotes();
 }
 
-log('App chargée. Clique "Autoriser le micro" pour commencer.');
+const versionEl = document.getElementById('app-version');
+if (versionEl) versionEl.textContent = APP_VERSION;
+
+log(`Beatbox2MIDI ${APP_VERSION} chargée. Clique "Autoriser le micro" pour commencer.`);
