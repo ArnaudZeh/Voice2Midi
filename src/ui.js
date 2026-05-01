@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.6'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.9.7'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -258,13 +258,16 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9.6 (revert v0.9.4)
-// china (0) : tch — ZCR > 0.06
+// Heuristique v0.9.7
+// Calibré sur logs réels :
+//   tch (china) → ZCR mesuré 0.201–0.511 (min observé : 0.201)
+//   kicks faux positifs → ZCR 0.06–0.18 → gap net avant 0.20
+// china (0) : ZCR > 0.18 (seuil data-driven, élimine les faux positifs kick)
 // snare (1) : ta aigu — midAvg > lowAvg * 0.85
 // kick  (2) : ta grave / dr — défaut
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
-  if (zcr > 0.06) return 0;              // China (tch)
-  if (midAvg > lowAvg * 0.85) return 1;  // Snare
+  if (zcr > 0.18) return 0;              // China (tch — data-driven)
+  if (midAvg > lowAvg * 0.85) return 1;  // Snare (ta aigu)
   return 2;                              // Kick
 }
 
