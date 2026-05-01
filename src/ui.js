@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.8'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.9.9'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -258,20 +258,25 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9.8 — calibré sur logs réels
+// Heuristique v0.9.9 — calibré sur logs réels (2 sessions kick)
 // tch/ts (china)   : ZCR 0.20–0.51
-// tou/dou/dr (kick): ZCR 0.01–0.05, high/mid max=0.555, mid/low max=0.843
+// tou/dou/dr (kick): ZCR 0.01–0.09, high/mid max=0.644, mid/low max=0.843
+//
+// Faux positif v0.9.8 : kick low=123.1 mid=79.9 high=51.5
+//   → high/mid=0.644 > 0.60 déclenchait snare
+//   → mid/low=0.649 < 0.70 → condition AND résout le problème
+//   Vérifié : aucun kick des 2 sessions ne passe les 2 conditions simultanément.
 //
 // china (0) : ZCR > 0.18
-// snare (1) : ka/ta — deux critères en union (l'un ou l'autre suffit) :
-//   • burst "k/t" → highAvg/midAvg > 0.60  (éclat transitoire, gap net vs kick max 0.555)
-//   • formant "a" → midAvg/lowAvg > 0.85   (voyelle orale, gap net vs kick max 0.843)
-// kick  (2) : tou/dou/dr — défaut
+// snare (1) : ka/ta/pa — deux critères en union :
+//   • burst + présence mid : high/mid > 0.60 ET mid/low > 0.70
+//   • formant "a" fort     : mid/low > 0.85
+// kick  (2) : défaut
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
-  if (zcr > 0.18) return 0;                    // China (tch/ts)
-  if (highAvg > midAvg * 0.60) return 1;       // Snare — burst "k/t" (high/mid > 0.60)
-  if (midAvg > lowAvg * 0.85) return 1;        // Snare — formant "a" (mid/low > 0.85)
-  return 2;                                    // Kick
+  if (zcr > 0.18) return 0;                                          // China
+  if (highAvg > midAvg * 0.60 && midAvg > lowAvg * 0.70) return 1; // Snare — burst + mid
+  if (midAvg > lowAvg * 0.85) return 1;                             // Snare — formant fort
+  return 2;                                                          // Kick
 }
 
 // Cooldown par classe
