@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.4'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.9.5'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -258,14 +258,19 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9.4
-// china (0) : tch — ZCR > 0.06 (seuil très permissif, affriquée courte dilue le ZCR)
-// snare (1) : ta aigu — mids pas bass-dominant (midAvg > lowAvg * 0.85)
-// kick  (2) : ta grave / dr — lows vraiment dominants (lowAvg > midAvg * 1.18)
+// Heuristique v0.9.5
+// IMPORTANT : lowAvg/midAvg sont des moyennes PAR BIN.
+// low = ~27 bins (80-600 Hz), mid = ~158 bins (600-4000 Hz)
+// → lowAvg est structurellement ~6× plus élevé que midAvg à énergie totale égale.
+// Pour comparer les énergies totales : midTotal ≈ midAvg * 6, lowTotal ≈ lowAvg * 1
+//
+// china (0) : tch — ZCR > 0.10 (relevé pour éviter faux positifs kick)
+// snare (1) : ta aigu — énergie totale mid > énergie totale low (midAvg * 6 > lowAvg)
+// kick  (2) : ta grave / dr — lows dominent en énergie totale
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
-  if (zcr > 0.06) return 0;              // China (tch)
-  if (midAvg > lowAvg * 0.85) return 1;  // Snare (ta aigu — pas bass-dominant)
-  return 2;                              // Kick (ta grave / dr)
+  if (zcr > 0.10) return 0;          // China (tch)
+  if (midAvg * 6 > lowAvg) return 1; // Snare — énergie totale mid > low
+  return 2;                          // Kick
 }
 
 // Cooldown par classe
