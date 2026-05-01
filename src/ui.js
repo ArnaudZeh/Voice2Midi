@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.9'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.9.10'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -258,24 +258,24 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9.9 — calibré sur logs réels (2 sessions kick)
+// Heuristique v0.9.10 — calibré sur 3 sessions de logs réels
 // tch/ts (china)   : ZCR 0.20–0.51
 // tou/dou/dr (kick): ZCR 0.01–0.09, high/mid max=0.644, mid/low max=0.843
+// ka/ta/pa (snare) : ZCR 0.02–0.08, high/mid max=0.546, mid/low 0.693–0.931
 //
-// Faux positif v0.9.8 : kick low=123.1 mid=79.9 high=51.5
-//   → high/mid=0.644 > 0.60 déclenchait snare
-//   → mid/low=0.649 < 0.70 → condition AND résout le problème
-//   Vérifié : aucun kick des 2 sessions ne passe les 2 conditions simultanément.
+// LIMITE HEURISTIQUE : zones mid/low 0.69–0.84 partagées entre kick et snare.
+// Seuil 0.82 = meilleur compromis (2 snare gagnées, 2 kicks faux positifs rares).
+// Séparation fiable requiert Phase 2 ML (training utilisateur).
 //
 // china (0) : ZCR > 0.18
 // snare (1) : ka/ta/pa — deux critères en union :
-//   • burst + présence mid : high/mid > 0.60 ET mid/low > 0.70
-//   • formant "a" fort     : mid/low > 0.85
-// kick  (2) : défaut
+//   • burst "k/t" + mid présent : high/mid > 0.60 ET mid/low > 0.70
+//   • formant "a" dominant      : mid/low > 0.82
+// kick  (2) : tou/dou/dr — défaut
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
   if (zcr > 0.18) return 0;                                          // China
   if (highAvg > midAvg * 0.60 && midAvg > lowAvg * 0.70) return 1; // Snare — burst + mid
-  if (midAvg > lowAvg * 0.85) return 1;                             // Snare — formant fort
+  if (midAvg > lowAvg * 0.82) return 1;                             // Snare — formant "a"
   return 2;                                                          // Kick
 }
 
