@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.7'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.9.8'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 
 // Navigation entre écrans
@@ -258,22 +258,25 @@ let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le sli
 const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
 const noteHistory = [];         // { time, velocity, railIdx }
 
-// Heuristique v0.9.7
-// Calibré sur logs réels :
-//   tch (china) → ZCR mesuré 0.201–0.511 (min observé : 0.201)
-//   kicks faux positifs → ZCR 0.06–0.18 → gap net avant 0.20
-// china (0) : ZCR > 0.18 (seuil data-driven, élimine les faux positifs kick)
-// snare (1) : ta aigu — midAvg > lowAvg * 0.85
-// kick  (2) : ta grave / dr — défaut
+// Heuristique v0.9.8 — calibré sur logs réels
+// tch/ts (china)   : ZCR 0.20–0.51
+// tou/dou/dr (kick): ZCR 0.01–0.05, high/mid max=0.555, mid/low max=0.843
+//
+// china (0) : ZCR > 0.18
+// snare (1) : ka/ta — deux critères en union (l'un ou l'autre suffit) :
+//   • burst "k/t" → highAvg/midAvg > 0.60  (éclat transitoire, gap net vs kick max 0.555)
+//   • formant "a" → midAvg/lowAvg > 0.85   (voyelle orale, gap net vs kick max 0.843)
+// kick  (2) : tou/dou/dr — défaut
 function classifyOnset({ lowAvg, midAvg, highAvg, zcr }) {
-  if (zcr > 0.18) return 0;              // China (tch — data-driven)
-  if (midAvg > lowAvg * 0.85) return 1;  // Snare (ta aigu)
-  return 2;                              // Kick
+  if (zcr > 0.18) return 0;                    // China (tch/ts)
+  if (highAvg > midAvg * 0.60) return 1;       // Snare — burst "k/t" (high/mid > 0.60)
+  if (midAvg > lowAvg * 0.85) return 1;        // Snare — formant "a" (mid/low > 0.85)
+  return 2;                                    // Kick
 }
 
 // Cooldown par classe
 const lastClassTime = [0, 0, 0];
-const CLASS_COOLDOWN_MS = [100, 80, 40]; // China, Snare, Kick (40ms pour dr rapide métal)
+const CLASS_COOLDOWN_MS = [200, 80, 40]; // China (200ms anti-triplette), Snare, Kick
 
 const RAIL_NAMES = ['China', 'Snare', 'Kick'];
 onOnset((data) => {
