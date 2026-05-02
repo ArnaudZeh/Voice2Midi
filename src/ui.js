@@ -1,9 +1,10 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.10.1'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.11.0'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
+import { tap, getBpm, getTapCount, resetTaps, startClick, stopClick, isClickRunning, startCountdown, buildAndDownloadMidi } from './midi.js';
 
 // Navigation entre écrans
 const navButtons = document.querySelectorAll('nav button');
@@ -529,3 +530,174 @@ const versionEl = document.getElementById('app-version');
 if (versionEl) versionEl.textContent = APP_VERSION;
 
 log(`Beatbox2MIDI ${APP_VERSION} chargée. Clique "Autoriser le micro" pour commencer.`);
+
+// ═══════════════════════════════════════════════════════
+// ——— EXPORT SCREEN ———
+// ═══════════════════════════════════════════════════════
+
+// Références DOM
+const bpmDisplay       = document.getElementById('bpmDisplay');
+const tapHint          = document.getElementById('tapHint');
+const btnTap           = document.getElementById('btnTap');
+const btnClick         = document.getElementById('btnClick');
+const beatDots         = [0,1,2,3].map(i => document.getElementById(`dot${i}`));
+const countdownDisplay = document.getElementById('countdownDisplay');
+const btnCountdownRec  = document.getElementById('btnCountdownRec');
+const btnStopRec       = document.getElementById('btnStopRec');
+const recStatus        = document.getElementById('recStatus');
+const btnExport        = document.getElementById('btnExport');
+const exportSummary    = document.getElementById('exportSummary');
+
+let currentBpm = null;
+let isRecording = false;
+let recStartTime = null;
+let recNotes = [];      // notes capturées pendant la rec
+let quantizeMode = 'none';
+
+// noteHistory partagé : on écoute aussi les onsets pour la rec export
+// (le même noteHistory de la timeline sert à l'export)
+
+function updateBpmDisplay(bpm) {
+  currentBpm = bpm;
+  if (bpmDisplay) bpmDisplay.innerHTML = bpm ? `${bpm} <span>BPM</span>` : `— <span>BPM</span>`;
+  if (btnClick)  btnClick.disabled = !bpm;
+  if (btnCountdownRec) btnCountdownRec.disabled = !bpm;
+}
+
+// ——— Tap Tempo ———
+if (btnTap) {
+  btnTap.addEventListener('click', () => {
+    const bpm = tap();
+    const count = getTapCount();
+    if (bpm) {
+      updateBpmDisplay(bpm);
+      if (tapHint) tapHint.textContent = `${count} tap${count > 1 ? 's' : ''} · ${bpm} BPM · continue pour affiner`;
+      // Si le click tourne déjà, le redémarrer au nouveau BPM
+      if (isClickRunning()) startClickUi(bpm);
+    } else {
+      if (tapHint) tapHint.textContent = 'Tap 2…';
+    }
+  });
+}
+
+// ——— Click de référence ———
+let beatIdx = 0;
+function startClickUi(bpm) {
+  beatIdx = 0;
+  beatDots.forEach((d, i) => { d.className = 'beat-dot' + (i === 0 ? ' accent' : ''); });
+  startClick(bpm, (beat) => {
+    const cur = beat % 4;
+    beatDots.forEach((d, i) => {
+      d.className = 'beat-dot' + (i === 0 ? ' accent' : '') + (i === cur ? ' active' : '');
+    });
+  });
+  if (btnClick) { btnClick.textContent = '■ Stop Click'; btnClick.classList.add('active'); }
+}
+
+function stopClickUi() {
+  stopClick();
+  beatDots.forEach(d => d.className = 'beat-dot');
+  if (btnClick) { btnClick.textContent = '▶ Click'; btnClick.classList.remove('active'); }
+}
+
+if (btnClick) {
+  btnClick.addEventListener('click', () => {
+    if (isClickRunning()) stopClickUi();
+    else if (currentBpm) startClickUi(currentBpm);
+  });
+}
+
+// ——— Décompte + Rec ———
+function startRec() {
+  isRecording = true;
+  recStartTime = performance.now();
+  recNotes = [];
+  if (btnCountdownRec) btnCountdownRec.style.display = 'none';
+  if (btnStopRec)      btnStopRec.style.display = '';
+  if (recStatus)       recStatus.textContent = '● Enregistrement en cours…';
+  if (exportSummary)   exportSummary.textContent = '';
+  if (btnExport)       btnExport.disabled = true;
+}
+
+function stopRec() {
+  isRecording = false;
+  stopClick();
+  stopClickUi();
+  if (countdownDisplay) countdownDisplay.textContent = '';
+  if (btnCountdownRec) { btnCountdownRec.style.display = ''; }
+  if (btnStopRec)      btnStopRec.style.display = 'none';
+  const n = recNotes.length;
+  if (recStatus) recStatus.textContent = n ? `${n} note${n > 1 ? 's' : ''} enregistrée${n > 1 ? 's' : ''}` : 'Rien enregistré.';
+  if (btnExport)  btnExport.disabled = n === 0;
+  if (exportSummary && n) exportSummary.textContent = `${n} notes · ${currentBpm} BPM · quant. ${quantizeMode}`;
+}
+
+// Capturer les onsets pendant la rec
+onOnset((data) => {
+  if (!isRecording) return;
+  let railIdx;
+  if (mlMode && isModelTrained()) {
+    const result = predict(data);
+    if (!result || result.confidence < 0.5) return;
+    railIdx = result.classIdx;
+  } else {
+    railIdx = classifyOnset(data);
+  }
+  recNotes.push({ time: data.timestamp, velocity: data.rms, railIdx });
+});
+
+if (btnCountdownRec) {
+  btnCountdownRec.addEventListener('click', () => {
+    if (!currentBpm) return;
+    stopClickUi();
+    if (countdownDisplay) countdownDisplay.textContent = '';
+    let n = 4;
+    startCountdown(
+      currentBpm,
+      (beat) => { if (countdownDisplay) countdownDisplay.textContent = beat; },
+      () => {
+        if (countdownDisplay) countdownDisplay.textContent = '';
+        startRec();
+        startClickUi(currentBpm);
+      }
+    );
+    if (countdownDisplay) countdownDisplay.textContent = '1';
+  });
+}
+
+if (btnStopRec) {
+  btnStopRec.addEventListener('click', stopRec);
+}
+
+// ——— Quantize ———
+document.querySelectorAll('.q-btn').forEach(btn => {
+  if (btn.dataset.q === 'none') btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.q-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    quantizeMode = btn.dataset.q;
+    if (exportSummary && recNotes.length) {
+      exportSummary.textContent = `${recNotes.length} notes · ${currentBpm} BPM · quant. ${quantizeMode}`;
+    }
+  });
+});
+
+// ——— Export ———
+if (btnExport) {
+  btnExport.addEventListener('click', async () => {
+    if (!recNotes.length || !currentBpm) return;
+    btnExport.disabled = true;
+    btnExport.textContent = 'Export en cours…';
+    try {
+      const filename = await buildAndDownloadMidi(recNotes, currentBpm, { quantize: quantizeMode === 'none' ? null : quantizeMode });
+      exportSummary.textContent = `✓ ${filename}`;
+      log(`Export : ${filename} (${recNotes.length} notes, ${currentBpm} BPM)`);
+    } catch (err) {
+      exportSummary.textContent = `Erreur : ${err.message}`;
+      log(`Export erreur : ${err.message}`);
+    } finally {
+      btnExport.disabled = false;
+      btnExport.textContent = 'Exporter .mid';
+    }
+  });
+}

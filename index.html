@@ -427,6 +427,90 @@
       text-align: center;
     }
     #modeLabel { font-weight: 600; }
+
+    /* ——— Export / Tap Tempo ——— */
+    .bpm-display {
+      font-size: 3.5rem;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      line-height: 1;
+      margin: 0.5rem 0;
+    }
+    .bpm-display span { font-size: 1rem; color: var(--text-dim); font-weight: 400; margin-left: 0.3rem; }
+    .tap-hint { font-size: 0.78rem; color: var(--text-dim); text-align: center; margin-top: 0.25rem; }
+    #btnTap {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      padding: 1.25rem;
+      width: 100%;
+      cursor: pointer;
+      transition: border-color 0.1s, background 0.1s;
+      letter-spacing: 0.04em;
+    }
+    #btnTap:active { background: var(--surface); border-color: var(--accent); }
+    .click-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    #btnClick {
+      flex: 1;
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btnClick.active { border-color: var(--accent); color: var(--accent); }
+    .beat-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .beat-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.05s;
+    }
+    .beat-dot.accent { background: var(--accent); }
+    .beat-dot.active { background: var(--warning); }
+    .countdown-display {
+      font-size: 2rem;
+      font-weight: 700;
+      text-align: center;
+      color: var(--warning);
+      min-height: 2.5rem;
+      line-height: 1;
+    }
+    .quantize-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .q-btn {
+      flex: 1;
+      background: var(--surface-2);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .q-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.07); }
+    .export-summary { font-size: 0.78rem; color: var(--accent); text-align: center; margin-top: 0.5rem; min-height: 1.2rem; }
   </style>
 </head>
 <body>
@@ -543,10 +627,47 @@
 
     <!-- EXPORT SCREEN -->
     <section id="screen-export" class="screen">
+
       <div class="card">
-        <h2>Export MIDI</h2>
-        <p class="status">À venir en phase 3</p>
+        <h2>1. Tap Tempo</h2>
+        <div class="bpm-display" id="bpmDisplay">— <span>BPM</span></div>
+        <button id="btnTap">TAP</button>
+        <p class="tap-hint" id="tapHint">Tape le rythme (min 2 taps · max 8 · reset après 2.5s)</p>
       </div>
+
+      <div class="card">
+        <h2>2. Click de référence</h2>
+        <div class="click-row">
+          <button id="btnClick" disabled>▶ Click</button>
+          <div class="beat-dots" id="beatDots">
+            <div class="beat-dot" id="dot0"></div>
+            <div class="beat-dot" id="dot1"></div>
+            <div class="beat-dot" id="dot2"></div>
+            <div class="beat-dot" id="dot3"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. Décompte + Rec</h2>
+        <p class="status" style="text-align:left;padding:0;margin-bottom:0.5rem;">4 beats de décompte puis rec démarre automatiquement</p>
+        <div class="countdown-display" id="countdownDisplay"></div>
+        <button id="btnCountdownRec" class="primary" style="margin-top:0.5rem;" disabled>▶ Décompte + Rec</button>
+        <button id="btnStopRec" class="secondary danger" style="margin-top:0.5rem;display:none;">■ Stop Rec</button>
+        <p class="status" id="recStatus"></p>
+      </div>
+
+      <div class="card">
+        <h2>4. Export .mid</h2>
+        <div class="quantize-row">
+          <button class="q-btn active" data-q="none">Raw</button>
+          <button class="q-btn" data-q="16n">16e</button>
+          <button class="q-btn active-default" data-q="32n">32e</button>
+        </div>
+        <button id="btnExport" class="primary" style="margin-top:0.75rem;" disabled>Exporter .mid</button>
+        <div class="export-summary" id="exportSummary"></div>
+      </div>
+
     </section>
   </main>
 
