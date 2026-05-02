@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.10.0'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.10.1'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -325,10 +325,13 @@ function updateTrainingUI() {
   const btnTrain = document.getElementById('btnTrain');
   if (btnTrain) {
     const ready = canTrain();
+    const alreadyTrained = isModelTrained();
     btnTrain.disabled = !ready;
-    btnTrain.textContent = ready
-      ? 'Entraîner le modèle'
-      : `Entraîner (min ${MIN_SAMPLES}/classe · ${counts.join('/')})`;
+    if (!ready) {
+      btnTrain.textContent = `Entraîner (min ${MIN_SAMPLES}/classe · ${counts.join('/')})`;
+    } else {
+      btnTrain.textContent = alreadyTrained ? `Ré-entraîner (${counts.join('/')} samples)` : 'Entraîner le modèle';
+    }
   }
 }
 
@@ -384,7 +387,20 @@ if (btnTrain) {
   });
 }
 
-// Bouton Reset
+// Boutons × par classe (efface seulement cette classe, garde les autres)
+CLASSES.forEach((cls, idx) => {
+  const btn = document.getElementById(`clear-${cls}`);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    clearClassSamples(idx);
+    mlMode = false;
+    updateModeLabel();
+    updateTrainingUI();
+    log(`Samples ${cls} effacés — ré-enregistre puis Ré-entraîner.`);
+  });
+});
+
+// Bouton Reset tout
 const btnResetTraining = document.getElementById('btnResetTraining');
 if (btnResetTraining) {
   btnResetTraining.addEventListener('click', () => {
