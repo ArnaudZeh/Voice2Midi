@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.12.2'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.12.3'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -259,7 +259,7 @@ if (btnPreRecord) {
 // ——— Timeline MIDI rolling (affiche les onsets comme notes sur piano-roll) ———
 const notesCanvas = document.getElementById('notesCanvas');
 let TIMELINE_MS = 2000;         // fenêtre affichée — contrôlée par le slider zoom
-const MAX_HISTORY_MS = 10000;   // buffer max conservé (ne jamais purger plus tôt)
+const MAX_HISTORY_MS = 300000;  // 5 min — assez large pour couvrir n'importe quelle session
 const noteHistory = [];         // { time, velocity, railIdx }
 
 // Heuristique v0.9.10 — calibré sur 3 sessions de logs réels
@@ -471,9 +471,11 @@ if (notesCanvas) {
     const w = rect.width, h = rect.height;
     const now = performance.now();
 
-    // Purge uniquement le buffer max — pas la fenêtre affichée
-    while (noteHistory.length && now - noteHistory[0].time > MAX_HISTORY_MS) {
-      noteHistory.shift();
+    // Purge le buffer max — jamais pendant un enregistrement actif
+    if (!isRecording) {
+      while (noteHistory.length && now - noteHistory[0].time > MAX_HISTORY_MS) {
+        noteHistory.shift();
+      }
     }
 
     // Fond
