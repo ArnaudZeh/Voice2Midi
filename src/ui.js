@@ -1,10 +1,11 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.11.2'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.12.0'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
-import { tap, getBpm, getTapCount, resetTaps, startClick, stopClick, isClickRunning, startCountdown, buildAndDownloadMidi } from './midi.js';
+import { tap, getBpm, getTapCount, resetTaps, startClick, stopClick, isClickRunning, startCountdown, buildAndDownloadMidi, previewNotes, stopPreview, applyQuantize } from './midi.js';
+import { saveDrumSample, loadDrumSamples } from './storage.js';
 
 // Navigation entre écrans
 const navButtons = document.querySelectorAll('nav button');
@@ -547,6 +548,10 @@ const btnStopRec       = document.getElementById('btnStopRec');
 const recStatus        = document.getElementById('recStatus');
 const btnExport        = document.getElementById('btnExport');
 const exportSummary    = document.getElementById('exportSummary');
+const btnPreviewPlay   = document.getElementById('btnPreviewPlay');
+const btnPreviewStop   = document.getElementById('btnPreviewStop');
+const previewBar       = document.getElementById('previewBar');
+const previewStatus    = document.getElementById('previewStatus');
 
 let currentBpm = null;
 let isRecording = false;
@@ -554,6 +559,7 @@ let recStartTime = null;
 let recNotes = [];          // snapshot de noteHistory filtré au stopRec
 let quantizeMode = 'none';
 let recCounterInterval = null;
+let userDrumBuffers = {};   // { china?, snare?, kick? } ArrayBuffer
 
 // noteHistory partagé : on écoute aussi les onsets pour la rec export
 // (le même noteHistory de la timeline sert à l'export)
@@ -564,6 +570,21 @@ function updateBpmDisplay(bpm) {
   if (btnClick)  btnClick.disabled = !bpm;
   if (btnCountdownRec) btnCountdownRec.disabled = !bpm;
 }
+
+// ——— BPM manuel ———
+const bpmInput  = document.getElementById('bpmInput');
+const btnBpmSet = document.getElementById('btnBpmSet');
+function applyManualBpm() {
+  const v = parseInt(bpmInput.value, 10);
+  if (v >= 30 && v <= 300) {
+    updateBpmDisplay(v);
+    resetTaps();
+    if (tapHint) tapHint.textContent = `BPM manuel : ${v}`;
+    if (isClickRunning()) startClickUi(v);
+  }
+}
+if (btnBpmSet) btnBpmSet.addEventListener('click', applyManualBpm);
+if (bpmInput)  bpmInput.addEventListener('keydown', e => { if (e.key === 'Enter') applyManualBpm(); });
 
 // ——— Tap Tempo ———
 if (btnTap) {
@@ -609,6 +630,12 @@ if (btnClick) {
 }
 
 // ——— Décompte + Rec ———
+function updateExportButtons() {
+  const has = recNotes.length > 0 && !!currentBpm;
+  if (btnPreviewPlay) btnPreviewPlay.disabled = !has;
+  if (btnExport)      btnExport.disabled = !has;
+}
+
 function startRec() {
   isRecording = true;
   recStartTime = performance.now();
@@ -636,8 +663,8 @@ function stopRec() {
   recNotes = noteHistory.filter(n => n.time >= recStartTime);
   const n = recNotes.length;
   if (recStatus) recStatus.textContent = n ? `${n} note${n !== 1 ? 's' : ''} enregistrée${n !== 1 ? 's' : ''}` : 'Rien enregistré.';
-  if (btnExport)  btnExport.disabled = n === 0;
-  if (exportSummary && n) exportSummary.textContent = `${n} notes · ${currentBpm} BPM · quant. ${quantizeMode}`;
+  if (exportSummary) exportSummary.textContent = '';
+  updateExportButtons();
 }
 
 if (btnCountdownRec) {
@@ -663,18 +690,78 @@ if (btnStopRec) {
   btnStopRec.addEventListener('click', stopRec);
 }
 
-// ——— Quantize ———
+// ——— Quantize (partagé écoute + export) ———
 document.querySelectorAll('.q-btn').forEach(btn => {
   if (btn.dataset.q === 'none') btn.classList.add('active');
   btn.addEventListener('click', () => {
     document.querySelectorAll('.q-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     quantizeMode = btn.dataset.q;
-    if (exportSummary && recNotes.length) {
-      exportSummary.textContent = `${recNotes.length} notes · ${currentBpm} BPM · quant. ${quantizeMode}`;
-    }
   });
 });
+
+// ——— Sons de batterie — upload utilisateur ———
+['china', 'snare', 'kick'].forEach(cls => {
+  const input  = document.getElementById(`file-${cls}`);
+  const slot   = document.getElementById(`slot-${cls}`);
+  const status = document.getElementById(`status-${cls}`);
+  if (!input) return;
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    userDrumBuffers[cls] = buf;
+    await saveDrumSample(cls, buf);
+    if (status) status.textContent = file.name.slice(0, 14);
+    if (slot)   slot.classList.add('loaded');
+  });
+});
+
+// Charger les samples sauvegardés au démarrage
+(async () => {
+  try {
+    const saved = await loadDrumSamples();
+    ['china', 'snare', 'kick'].forEach(cls => {
+      if (saved[cls]) {
+        userDrumBuffers[cls] = saved[cls];
+        const status = document.getElementById(`status-${cls}`);
+        const slot   = document.getElementById(`slot-${cls}`);
+        if (status) status.textContent = 'Custom ✓';
+        if (slot)   slot.classList.add('loaded');
+      }
+    });
+  } catch (_) {}
+})();
+
+// ——— Preview ———
+function setPreviewPlaying(playing) {
+  if (btnPreviewPlay) btnPreviewPlay.disabled = playing;
+  if (btnPreviewStop) btnPreviewStop.disabled = !playing;
+  if (previewStatus) previewStatus.textContent = playing ? '▶ Lecture…' : '';
+  if (!playing && previewBar) previewBar.style.width = '0%';
+}
+
+if (btnPreviewPlay) {
+  btnPreviewPlay.addEventListener('click', async () => {
+    if (!recNotes.length || !currentBpm) return;
+    const q = quantizeMode === 'none' ? null : quantizeMode;
+    const label = q ? `Lecture ${quantizeMode}` : 'Lecture RAW';
+    if (previewStatus) previewStatus.textContent = `▶ ${label}…`;
+    setPreviewPlaying(true);
+    await previewNotes(
+      recNotes, currentBpm, q, userDrumBuffers,
+      (pct) => { if (previewBar) previewBar.style.width = `${pct * 100}%`; },
+      () => setPreviewPlaying(false)
+    );
+  });
+}
+
+if (btnPreviewStop) {
+  btnPreviewStop.addEventListener('click', () => {
+    stopPreview();
+    setPreviewPlaying(false);
+  });
+}
 
 // ——— Export ———
 if (btnExport) {
@@ -683,11 +770,13 @@ if (btnExport) {
     btnExport.disabled = true;
     btnExport.textContent = 'Export en cours…';
     try {
-      const filename = await buildAndDownloadMidi(recNotes, currentBpm, { quantize: quantizeMode === 'none' ? null : quantizeMode });
-      exportSummary.textContent = `✓ ${filename}`;
-      log(`Export : ${filename} (${recNotes.length} notes, ${currentBpm} BPM)`);
+      const q = quantizeMode === 'none' ? null : quantizeMode;
+      const filename = await buildAndDownloadMidi(recNotes, currentBpm, { quantize: q });
+      const n = applyQuantize(recNotes, currentBpm, q).length;
+      if (exportSummary) exportSummary.textContent = `✓ ${filename} · ${n} notes`;
+      log(`Export : ${filename} (${n} notes, ${currentBpm} BPM, quant.=${quantizeMode})`);
     } catch (err) {
-      exportSummary.textContent = `Erreur : ${err.message}`;
+      if (exportSummary) exportSummary.textContent = `Erreur : ${err.message}`;
       log(`Export erreur : ${err.message}`);
     } finally {
       btnExport.disabled = false;

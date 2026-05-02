@@ -511,6 +511,45 @@
     }
     .q-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.07); }
     .export-summary { font-size: 0.78rem; color: var(--accent); text-align: center; margin-top: 0.5rem; min-height: 1.2rem; }
+    .bpm-manual-row {
+      display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;
+    }
+    .bpm-manual-row label { font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; }
+    .bpm-manual-row input[type="number"] {
+      width: 80px; background: var(--surface-2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.5rem 0.6rem; font-size: 1rem; font-weight: 700;
+      text-align: center; -moz-appearance: textfield;
+    }
+    .bpm-manual-row input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .bpm-manual-row button {
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    }
+    .sample-grid {
+      display: flex; gap: 0.5rem;
+    }
+    .sample-slot {
+      flex: 1; background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.6rem 0.4rem; text-align: center;
+    }
+    .sample-slot-name { font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; }
+    .sample-slot-status { font-size: 0.68rem; color: var(--text-dim); margin-bottom: 0.3rem; min-height: 0.9rem; }
+    .sample-slot label {
+      display: block; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.3rem 0.4rem; font-size: 0.72rem;
+      font-weight: 600; cursor: pointer; color: var(--text-dim);
+    }
+    .sample-slot label:hover { color: var(--accent); border-color: var(--accent); }
+    .sample-slot input[type="file"] { display: none; }
+    .sample-slot.loaded label { color: var(--accent); border-color: var(--accent); }
+    .preview-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .preview-actions button { flex: 1; }
+    .preview-bar-wrap {
+      height: 4px; background: var(--surface-2); border-radius: 999px;
+      margin-top: 0.6rem; overflow: hidden;
+    }
+    .preview-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 999px; transition: width 0.1s linear; }
   </style>
 </head>
 <body>
@@ -633,10 +672,37 @@
         <div class="bpm-display" id="bpmDisplay">— <span>BPM</span></div>
         <button id="btnTap">TAP</button>
         <p class="tap-hint" id="tapHint">Tape le rythme — s'affine à chaque tap · reset après 2.5s de silence</p>
+        <div class="bpm-manual-row">
+          <label for="bpmInput">ou saisir :</label>
+          <input type="number" id="bpmInput" min="30" max="300" placeholder="BPM">
+          <button id="btnBpmSet">OK</button>
+        </div>
       </div>
 
       <div class="card">
-        <h2>2. Click de référence</h2>
+        <h2>2. Sons de batterie</h2>
+        <p class="status" style="text-align:left;padding:0 0 0.5rem;">Sons synthétiques par défaut. Charge tes propres .wav (ex: Get Good Drums) pour remplacer.</p>
+        <div class="sample-grid">
+          <div class="sample-slot" id="slot-china">
+            <div class="sample-slot-name" style="color:#ffb020">China</div>
+            <div class="sample-slot-status" id="status-china">Synth</div>
+            <label>Charger .wav<input type="file" id="file-china" accept=".wav,.mp3,.ogg,.flac"></label>
+          </div>
+          <div class="sample-slot" id="slot-snare">
+            <div class="sample-slot-name" style="color:#ff3b5c">Snare</div>
+            <div class="sample-slot-status" id="status-snare">Synth</div>
+            <label>Charger .wav<input type="file" id="file-snare" accept=".wav,.mp3,.ogg,.flac"></label>
+          </div>
+          <div class="sample-slot" id="slot-kick">
+            <div class="sample-slot-name" style="color:#4f9dff">Kick</div>
+            <div class="sample-slot-status" id="status-kick">Synth</div>
+            <label>Charger .wav<input type="file" id="file-kick" accept=".wav,.mp3,.ogg,.flac"></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. Click de référence</h2>
         <div class="click-row">
           <button id="btnClick" disabled>▶ Click</button>
           <div class="beat-dots" id="beatDots">
@@ -649,7 +715,7 @@
       </div>
 
       <div class="card">
-        <h2>3. Décompte + Rec</h2>
+        <h2>4. Décompte + Rec</h2>
         <p class="status" style="text-align:left;padding:0;margin-bottom:0.5rem;">4 beats de décompte puis rec démarre automatiquement</p>
         <div class="countdown-display" id="countdownDisplay"></div>
         <button id="btnCountdownRec" class="primary" style="margin-top:0.5rem;" disabled>▶ Décompte + Rec</button>
@@ -658,13 +724,23 @@
       </div>
 
       <div class="card">
-        <h2>4. Export .mid</h2>
+        <h2>5. Écouter</h2>
         <div class="quantize-row">
           <button class="q-btn active" data-q="none">Raw</button>
           <button class="q-btn" data-q="16n">16e</button>
-          <button class="q-btn active-default" data-q="32n">32e</button>
+          <button class="q-btn" data-q="32n">32e</button>
         </div>
-        <button id="btnExport" class="primary" style="margin-top:0.75rem;" disabled>Exporter .mid</button>
+        <div class="preview-actions">
+          <button id="btnPreviewPlay" class="secondary" disabled>▶ Écouter</button>
+          <button id="btnPreviewStop" class="secondary danger" disabled>■ Stop</button>
+        </div>
+        <div class="preview-bar-wrap"><div class="preview-bar" id="previewBar"></div></div>
+        <p class="status" id="previewStatus"></p>
+      </div>
+
+      <div class="card">
+        <h2>6. Export .mid</h2>
+        <button id="btnExport" class="primary" disabled>Exporter .mid</button>
         <div class="export-summary" id="exportSummary"></div>
       </div>
 

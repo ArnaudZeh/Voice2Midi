@@ -96,6 +96,154 @@ export function startCountdown(bpm, onTick, onDone) {
   countdownTimeout = setTimeout(tick, intervalMs);
 }
 
+// ——— Sons de batterie synthétiques ———
+function makeNoise(ctx, duration) {
+  const buf = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
+function synthKick(ctx, t, vel) {
+  const g = ctx.createGain();
+  g.connect(ctx.destination);
+  g.gain.setValueAtTime(vel, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+  const osc = ctx.createOscillator();
+  osc.connect(g);
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+  osc.start(t); osc.stop(t + 0.45);
+  return osc;
+}
+
+function synthSnare(ctx, t, vel) {
+  // Bruit
+  const ng = ctx.createGain();
+  ng.connect(ctx.destination);
+  ng.gain.setValueAtTime(vel * 0.6, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  const ns = ctx.createBufferSource();
+  ns.buffer = makeNoise(ctx, 0.2);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 1500;
+  ns.connect(hp); hp.connect(ng);
+  ns.start(t); ns.stop(t + 0.18);
+  // Ton
+  const tg = ctx.createGain();
+  tg.connect(ctx.destination);
+  tg.gain.setValueAtTime(vel * 0.4, t);
+  tg.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  const osc = ctx.createOscillator();
+  osc.frequency.value = 220;
+  osc.connect(tg);
+  osc.start(t); osc.stop(t + 0.08);
+  return ns;
+}
+
+function synthChina(ctx, t, vel) {
+  const g = ctx.createGain();
+  g.connect(ctx.destination);
+  g.gain.setValueAtTime(vel * 0.5, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  const ns = ctx.createBufferSource();
+  ns.buffer = makeNoise(ctx, 0.4);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 8000; bp.Q.value = 0.8;
+  ns.connect(bp); bp.connect(g);
+  ns.start(t); ns.stop(t + 0.35);
+  return ns;
+}
+
+const SYNTH_FNS = [synthChina, synthSnare, synthKick]; // index = railIdx
+
+// ——— Quantize partagé (preview + export) ———
+export function applyQuantize(notes, bpm, quantize) {
+  if (!quantize) return notes;
+  const gridMs = getGridMs(bpm, quantize);
+  const rawMs = notes.map(n => n.time - notes[0].time);
+  const drift = computeDriftCorrection(rawMs, gridMs);
+  const dedupMap = new Map();
+  notes.forEach((n, i) => {
+    const corrected = Math.max(0, rawMs[i] - drift);
+    const snapped = Math.round(corrected / gridMs) * gridMs;
+    const key = `${snapped}_${n.railIdx}`;
+    if (!dedupMap.has(key) || n.velocity > dedupMap.get(key).velocity) {
+      dedupMap.set(key, { ...n, time: notes[0].time + snapped });
+    }
+  });
+  return Array.from(dedupMap.values()).sort((a, b) => a.time - b.time);
+}
+
+// ——— Prévisualisation audio ———
+let previewSources = [];
+let previewCtx = null;
+
+export async function previewNotes(notes, bpm, quantize, userBuffers = {}, onProgress, onEnd) {
+  stopPreview();
+  if (!notes.length) return;
+  const notesToPlay = applyQuantize(notes, bpm, quantize);
+  previewCtx = new AudioContext();
+  previewSources = [];
+
+  // Décoder les samples utilisateur si dispo
+  const decoded = {};
+  await Promise.all(['china', 'snare', 'kick'].map(async (cls, i) => {
+    if (userBuffers[cls]) {
+      try { decoded[i] = await previewCtx.decodeAudioData(userBuffers[cls].slice(0)); }
+      catch (_) { /* fallback synth */ }
+    }
+  }));
+
+  const t0 = previewCtx.currentTime + 0.05;
+  const startMs = notesToPlay[0].time;
+  const totalMs = notesToPlay[notesToPlay.length - 1].time - startMs;
+
+  notesToPlay.forEach(n => {
+    const tSec = t0 + (n.time - startMs) / 1000;
+    const vel = Math.max(0.2, Math.min(1, n.velocity * 6));
+    if (decoded[n.railIdx]) {
+      const src = previewCtx.createBufferSource();
+      src.buffer = decoded[n.railIdx];
+      const g = previewCtx.createGain();
+      g.gain.value = vel;
+      src.connect(g); g.connect(previewCtx.destination);
+      src.start(tSec);
+      previewSources.push(src);
+    } else {
+      const src = SYNTH_FNS[n.railIdx](previewCtx, tSec, vel);
+      previewSources.push(src);
+    }
+  });
+
+  // Callback de fin
+  const endSec = t0 + totalMs / 1000 + 0.5;
+  const endTimer = setTimeout(() => { onEnd && onEnd(); }, (endSec - previewCtx.currentTime) * 1000);
+  previewSources._endTimer = endTimer;
+
+  // Progress toutes les 100ms
+  if (onProgress) {
+    const progressInterval = setInterval(() => {
+      if (!previewCtx) { clearInterval(progressInterval); return; }
+      const elapsed = (previewCtx.currentTime - t0) * 1000;
+      const pct = Math.min(1, elapsed / (totalMs || 1));
+      onProgress(pct);
+      if (pct >= 1) clearInterval(progressInterval);
+    }, 100);
+    previewSources._progressInterval = progressInterval;
+  }
+}
+
+export function stopPreview() {
+  if (previewSources._endTimer)        clearTimeout(previewSources._endTimer);
+  if (previewSources._progressInterval) clearInterval(previewSources._progressInterval);
+  previewSources.forEach(s => { try { s.stop(0); } catch (_) {} });
+  previewSources = [];
+  if (previewCtx) { previewCtx.close(); previewCtx = null; }
+}
+
+export function isPreviewRunning() { return previewCtx !== null; }
+
 // ——— Export MIDI ———
 // Charge midi-writer-js depuis CDN (une seule fois)
 let midiWriterReady = null;
@@ -155,41 +303,17 @@ export async function buildAndDownloadMidi(noteHistory, bpm, options = {}) {
   const ppq = 128; // ticks par noire
   const msPerTick = 60000 / (bpm * ppq);
 
-  // Préparer les rawMs
-  let events = noteHistory.map(n => {
+  // Appliquer quantize (partagé avec preview)
+  const quantizedNotes = applyQuantize(noteHistory, bpm, quantize);
+
+  const events = quantizedNotes.map(n => {
     const className = CLASSES[n.railIdx];
     const pitch = MIDI_MAP[className];
     if (!pitch) return null;
-    return { rawMs: n.time - t0, pitch, velocity: rmsToVelocity(n.velocity) };
-  }).filter(Boolean);
-
-  if (quantize) {
-    const gridMs = getGridMs(bpm, quantize);
-    // Correction de drift : soustrait l'offset médian avant snap
-    const drift = computeDriftCorrection(events.map(e => e.rawMs), gridMs);
-    events = events.map(e => ({
-      ...e,
-      rawMs: Math.max(0, e.rawMs - drift),
-    }));
-    // Snap sur la grille
-    events = events.map(e => ({
-      ...e,
-      rawMs: Math.round(e.rawMs / gridMs) * gridMs,
-    }));
-    // Déduplication : si deux notes du même pitch tombent sur le même ms, garder la plus forte
-    const dedupMap = new Map();
-    events.forEach(e => {
-      const key = `${e.rawMs}_${e.pitch}`;
-      if (!dedupMap.has(key) || e.velocity > dedupMap.get(key).velocity) {
-        dedupMap.set(key, e);
-      }
-    });
-    events = Array.from(dedupMap.values());
-  }
-
-  // Convertir rawMs → ticks et trier
-  events = events.map(e => ({ ...e, tick: Math.round(e.rawMs / msPerTick) }));
-  events.sort((a, b) => a.tick - b.tick);
+    const rawMs = n.time - t0;
+    const tick = Math.round(rawMs / msPerTick);
+    return { tick, pitch, velocity: rmsToVelocity(n.velocity) };
+  }).filter(Boolean).sort((a, b) => a.tick - b.tick);
 
   // Construire les NoteEvents avec wait en ticks
   let cursor = 0;
