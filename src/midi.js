@@ -155,7 +155,23 @@ function synthChina(ctx, t, vel) {
   return ns;
 }
 
-const SYNTH_FNS = [synthChina, synthSnare, synthKick]; // index = railIdx
+const SYNTH_FNS = [synthChina, synthSnare, synthKick]; // index = railIdx, fallback si .wav indispo
+
+// Sons statiques bundlés (SOUNDS/*.wav) — chargés une fois, utilisés comme défaut
+// ordre : [0]=china, [1]=snare, [2]=kick (= railIdx)
+const STATIC_URLS = ['./SOUNDS/CHINA.wav', './SOUNDS/SNARE.wav', './SOUNDS/KICK.wav'];
+let staticBuffers = [null, null, null]; // AudioBuffer décodés, partagés entre previews
+
+async function ensureStaticBuffers(ctx) {
+  await Promise.all(STATIC_URLS.map(async (url, i) => {
+    if (staticBuffers[i]) return; // déjà chargé
+    try {
+      const res = await fetch(url);
+      const ab  = await res.arrayBuffer();
+      staticBuffers[i] = await ctx.decodeAudioData(ab);
+    } catch (_) { /* restera null → fallback synth */ }
+  }));
+}
 
 // ——— Quantize partagé (preview + export) ———
 export function applyQuantize(notes, bpm, quantize) {
@@ -186,14 +202,20 @@ export async function previewNotes(notes, bpm, quantize, userBuffers = {}, onPro
   previewCtx = new AudioContext();
   previewSources = [];
 
-  // Décoder les samples utilisateur si dispo
-  const decoded = {};
+  // Charger les sons statiques si pas encore fait
+  await ensureStaticBuffers(previewCtx);
+
+  // Décoder les overrides utilisateur si dispo
+  const userDecoded = {};
   await Promise.all(['china', 'snare', 'kick'].map(async (cls, i) => {
     if (userBuffers[cls]) {
-      try { decoded[i] = await previewCtx.decodeAudioData(userBuffers[cls].slice(0)); }
-      catch (_) { /* fallback synth */ }
+      try { userDecoded[i] = await previewCtx.decodeAudioData(userBuffers[cls].slice(0)); }
+      catch (_) {}
     }
   }));
+
+  // Priorité : user override > sons statiques > synth
+  const decoded = staticBuffers.map((buf, i) => userDecoded[i] || buf);
 
   const t0 = previewCtx.currentTime + 0.05;
   const startMs = notesToPlay[0].time;

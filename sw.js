@@ -1,5 +1,5 @@
 // sw.js — Service Worker pour PWA offline-first
-const CACHE_NAME = 'beatbox2midi-v27'; // sync avec APP_VERSION dans ui.js
+const CACHE_NAME = 'beatbox2midi-v28'; // sync avec APP_VERSION dans ui.js
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,9 @@ const ASSETS = [
   './src/model.js',
   './src/midi.js',
   './src/storage.js',
+  './SOUNDS/KICK.wav',
+  './SOUNDS/SNARE.wav',
+  './SOUNDS/CHINA.wav',
 ];
 
 self.addEventListener('install', (e) => {
