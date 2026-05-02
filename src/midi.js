@@ -76,8 +76,8 @@ export function stopClick() {
 
 export function isClickRunning() { return clickIntervalId !== null; }
 
-// Décompte 4 beats puis callback
-export function startCountdown(bpm, onTick, onDone) {
+// Décompte N beats puis callback (beats = 4 ou 8)
+export function startCountdown(bpm, beats, onTick, onDone) {
   stopClick();
   const intervalMs = 60000 / bpm;
   let count = 0;
@@ -85,7 +85,7 @@ export function startCountdown(bpm, onTick, onDone) {
   onTick(1);
   const tick = () => {
     count++;
-    if (count < 4) {
+    if (count < beats) {
       playClick(count % 4 === 0);
       onTick(count + 1);
       countdownTimeout = setTimeout(tick, intervalMs);
@@ -195,7 +195,7 @@ export function applyQuantize(notes, bpm, quantize) {
 let previewSources = [];
 let previewCtx = null;
 
-export async function previewNotes(notes, bpm, quantize, userBuffers = {}, onProgress, onEnd) {
+export async function previewNotes(notes, bpm, quantize, userBuffers = {}, onProgress, onEnd, withClick = false) {
   stopPreview();
   if (!notes.length) return;
   const notesToPlay = applyQuantize(notes, bpm, quantize);
@@ -237,6 +237,24 @@ export async function previewNotes(notes, bpm, quantize, userBuffers = {}, onPro
       previewSources.push(src);
     }
   });
+
+  // Click de référence pendant la lecture (même AudioContext → synchro parfaite)
+  if (withClick) {
+    const beatMs = 60000 / bpm;
+    const beatCount = Math.ceil((totalMs + beatMs) / beatMs) + 1;
+    for (let b = 0; b <= beatCount; b++) {
+      const tBeat = t0 + (b * beatMs) / 1000;
+      const isAccent = b % 4 === 0;
+      const osc = previewCtx.createOscillator();
+      const gc = previewCtx.createGain();
+      osc.connect(gc); gc.connect(previewCtx.destination);
+      osc.frequency.value = isAccent ? 1200 : 800;
+      gc.gain.setValueAtTime(isAccent ? 0.3 : 0.18, tBeat);
+      gc.gain.exponentialRampToValueAtTime(0.001, tBeat + 0.05);
+      osc.start(tBeat); osc.stop(tBeat + 0.05);
+      previewSources.push(osc);
+    }
+  }
 
   // Callback de fin
   const endSec = t0 + totalMs / 1000 + 0.5;

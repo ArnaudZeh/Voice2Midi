@@ -716,7 +716,11 @@
 
       <div class="card">
         <h2>4. Décompte + Rec</h2>
-        <p class="status" style="text-align:left;padding:0;margin-bottom:0.5rem;">4 beats de décompte puis rec démarre automatiquement</p>
+        <p class="status" style="text-align:left;padding:0;margin-bottom:0.5rem;">Décompte puis rec démarre automatiquement</p>
+        <div class="quantize-row" style="margin-bottom:0.5rem;">
+          <button class="q-btn beats-btn active" data-beats="4">4 temps</button>
+          <button class="q-btn beats-btn" data-beats="8">8 temps</button>
+        </div>
         <div class="countdown-display" id="countdownDisplay"></div>
         <button id="btnCountdownRec" class="primary" style="margin-top:0.5rem;" disabled>▶ Décompte + Rec</button>
         <button id="btnStopRec" class="secondary danger" style="margin-top:0.5rem;display:none;">■ Stop Rec</button>
@@ -729,6 +733,9 @@
           <button class="q-btn active" data-q="none">Raw</button>
           <button class="q-btn" data-q="16n">16e</button>
           <button class="q-btn" data-q="32n">32e</button>
+        </div>
+        <div class="quantize-row" style="margin-top:0.4rem;">
+          <button id="btnPreviewClick" class="q-btn">Click ✗</button>
         </div>
         <div class="preview-actions">
           <button id="btnPreviewPlay" class="secondary" disabled>▶ Écouter</button>

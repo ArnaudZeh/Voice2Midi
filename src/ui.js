@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.12.3'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.13.0'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -552,6 +552,7 @@ const btnExport        = document.getElementById('btnExport');
 const exportSummary    = document.getElementById('exportSummary');
 const btnPreviewPlay   = document.getElementById('btnPreviewPlay');
 const btnPreviewStop   = document.getElementById('btnPreviewStop');
+const btnPreviewClick  = document.getElementById('btnPreviewClick');
 const previewBar       = document.getElementById('previewBar');
 const previewStatus    = document.getElementById('previewStatus');
 
@@ -560,6 +561,8 @@ let isRecording = false;
 let recStartTime = null;
 let recNotes = [];          // snapshot de noteHistory filtré au stopRec
 let quantizeMode = 'none';
+let countdownBeats = 4;     // 4 ou 8 temps de décompte
+let previewWithClick = false;
 let recCounterInterval = null;
 let userDrumBuffers = {};   // { china?, snare?, kick? } ArrayBuffer
 
@@ -678,9 +681,9 @@ if (btnCountdownRec) {
     if (!currentBpm) return;
     stopClickUi();
     if (countdownDisplay) countdownDisplay.textContent = '';
-    let n = 4;
     startCountdown(
       currentBpm,
+      countdownBeats,
       (beat) => { if (countdownDisplay) countdownDisplay.textContent = beat; },
       () => {
         if (countdownDisplay) countdownDisplay.textContent = '';
@@ -697,14 +700,31 @@ if (btnStopRec) {
 }
 
 // ——— Quantize (partagé écoute + export) ———
-document.querySelectorAll('.q-btn').forEach(btn => {
-  if (btn.dataset.q === 'none') btn.classList.add('active');
+document.querySelectorAll('.q-btn:not(.beats-btn)').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.q-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.q-btn:not(.beats-btn)').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     quantizeMode = btn.dataset.q;
   });
 });
+
+// ——— Beats de décompte ———
+document.querySelectorAll('.beats-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.beats-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    countdownBeats = parseInt(btn.dataset.beats, 10);
+  });
+});
+
+// ——— Click pendant la preview ———
+if (btnPreviewClick) {
+  btnPreviewClick.addEventListener('click', () => {
+    previewWithClick = !previewWithClick;
+    btnPreviewClick.textContent = previewWithClick ? 'Click ✓' : 'Click ✗';
+    btnPreviewClick.classList.toggle('active', previewWithClick);
+  });
+}
 
 // ——— Sons de batterie — upload utilisateur ———
 ['china', 'snare', 'kick'].forEach(cls => {
@@ -757,7 +777,8 @@ if (btnPreviewPlay) {
     await previewNotes(
       recNotes, currentBpm, q, userDrumBuffers,
       (pct) => { if (previewBar) previewBar.style.width = `${pct * 100}%`; },
-      () => setPreviewPlaying(false)
+      () => setPreviewPlaying(false),
+      previewWithClick
     );
   });
 }
