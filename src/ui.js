@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.11.1'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.11.2'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -551,8 +551,9 @@ const exportSummary    = document.getElementById('exportSummary');
 let currentBpm = null;
 let isRecording = false;
 let recStartTime = null;
-let recNotes = [];      // notes capturées pendant la rec
+let recNotes = [];          // snapshot de noteHistory filtré au stopRec
 let quantizeMode = 'none';
+let recCounterInterval = null;
 
 // noteHistory partagé : on écoute aussi les onsets pour la rec export
 // (le même noteHistory de la timeline sert à l'export)
@@ -614,37 +615,30 @@ function startRec() {
   recNotes = [];
   if (btnCountdownRec) btnCountdownRec.style.display = 'none';
   if (btnStopRec)      btnStopRec.style.display = '';
-  if (recStatus)       recStatus.textContent = '● Enregistrement en cours…';
   if (exportSummary)   exportSummary.textContent = '';
   if (btnExport)       btnExport.disabled = true;
+  // Compteur live — relit noteHistory filtré toutes les 200ms
+  recCounterInterval = setInterval(() => {
+    const n = noteHistory.filter(n => n.time >= recStartTime).length;
+    if (recStatus) recStatus.textContent = `● Enregistrement… ${n} note${n !== 1 ? 's' : ''}`;
+  }, 200);
 }
 
 function stopRec() {
   isRecording = false;
+  clearInterval(recCounterInterval);
   stopClick();
   stopClickUi();
   if (countdownDisplay) countdownDisplay.textContent = '';
   if (btnCountdownRec) { btnCountdownRec.style.display = ''; }
   if (btnStopRec)      btnStopRec.style.display = 'none';
+  // Snapshot : toutes les notes classifiées depuis recStartTime
+  recNotes = noteHistory.filter(n => n.time >= recStartTime);
   const n = recNotes.length;
-  if (recStatus) recStatus.textContent = n ? `${n} note${n > 1 ? 's' : ''} enregistrée${n > 1 ? 's' : ''}` : 'Rien enregistré.';
+  if (recStatus) recStatus.textContent = n ? `${n} note${n !== 1 ? 's' : ''} enregistrée${n !== 1 ? 's' : ''}` : 'Rien enregistré.';
   if (btnExport)  btnExport.disabled = n === 0;
   if (exportSummary && n) exportSummary.textContent = `${n} notes · ${currentBpm} BPM · quant. ${quantizeMode}`;
 }
-
-// Capturer les onsets pendant la rec
-onOnset((data) => {
-  if (!isRecording) return;
-  let railIdx;
-  if (mlMode && isModelTrained()) {
-    const result = predict(data);
-    if (!result || result.confidence < 0.5) return;
-    railIdx = result.classIdx;
-  } else {
-    railIdx = classifyOnset(data);
-  }
-  recNotes.push({ time: data.timestamp, velocity: data.rms, railIdx });
-});
 
 if (btnCountdownRec) {
   btnCountdownRec.addEventListener('click', () => {

@@ -118,13 +118,21 @@ export function rmsToVelocity(rms, floor = 0.01, ceiling = 0.3, curve = 0.7) {
   return Math.max(20, Math.round(Math.pow(norm, curve) * 127));
 }
 
-// quantize un timestamp (ms) sur la grille la plus proche
-function quantizeMs(tsMs, bpm, grid) {
-  if (!grid) return tsMs;
-  const divisions = grid === '32n' ? 32 : 16;
+// gridMs pour un quantize donné
+function getGridMs(bpm, grid) {
   const beatMs = 60000 / bpm;
-  const gridMs = beatMs / (divisions / 4);
-  return Math.round(tsMs / gridMs) * gridMs;
+  return grid === '32n' ? beatMs / 8 : beatMs / 4; // 32e ou 16e
+}
+
+// Correction de drift : offset médian de toutes les notes par rapport à la grille
+// Corrige la latence systématique (ex: l'utilisateur joue toujours 30ms après le click)
+function computeDriftCorrection(rawTimesMs, gridMs) {
+  const signedOffsets = rawTimesMs.map(t => {
+    const mod = ((t % gridMs) + gridMs) % gridMs;
+    return mod < gridMs / 2 ? mod : mod - gridMs;
+  });
+  signedOffsets.sort((a, b) => a - b);
+  return signedOffsets[Math.floor(signedOffsets.length / 2)] || 0;
 }
 
 /**
@@ -147,18 +155,40 @@ export async function buildAndDownloadMidi(noteHistory, bpm, options = {}) {
   const ppq = 128; // ticks par noire
   const msPerTick = 60000 / (bpm * ppq);
 
-  const events = noteHistory.map(n => {
+  // Préparer les rawMs
+  let events = noteHistory.map(n => {
     const className = CLASSES[n.railIdx];
     const pitch = MIDI_MAP[className];
     if (!pitch) return null;
-    const rawMs = n.time - t0;
-    const qMs = quantizeMs(rawMs, bpm, quantize);
-    const tick = Math.round(qMs / msPerTick);
-    const velocity = rmsToVelocity(n.velocity);
-    return { tick, pitch, velocity };
+    return { rawMs: n.time - t0, pitch, velocity: rmsToVelocity(n.velocity) };
   }).filter(Boolean);
 
-  // Trier par tick (quantize peut réordonner)
+  if (quantize) {
+    const gridMs = getGridMs(bpm, quantize);
+    // Correction de drift : soustrait l'offset médian avant snap
+    const drift = computeDriftCorrection(events.map(e => e.rawMs), gridMs);
+    events = events.map(e => ({
+      ...e,
+      rawMs: Math.max(0, e.rawMs - drift),
+    }));
+    // Snap sur la grille
+    events = events.map(e => ({
+      ...e,
+      rawMs: Math.round(e.rawMs / gridMs) * gridMs,
+    }));
+    // Déduplication : si deux notes du même pitch tombent sur le même ms, garder la plus forte
+    const dedupMap = new Map();
+    events.forEach(e => {
+      const key = `${e.rawMs}_${e.pitch}`;
+      if (!dedupMap.has(key) || e.velocity > dedupMap.get(key).velocity) {
+        dedupMap.set(key, e);
+      }
+    });
+    events = Array.from(dedupMap.values());
+  }
+
+  // Convertir rawMs → ticks et trier
+  events = events.map(e => ({ ...e, tick: Math.round(e.rawMs / msPerTick) }));
   events.sort((a, b) => a.tick - b.tick);
 
   // Construire les NoteEvents avec wait en ticks
