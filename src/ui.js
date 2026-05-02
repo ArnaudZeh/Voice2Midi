@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.12.0'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.12.1'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -584,7 +584,11 @@ function applyManualBpm() {
   }
 }
 if (btnBpmSet) btnBpmSet.addEventListener('click', applyManualBpm);
-if (bpmInput)  bpmInput.addEventListener('keydown', e => { if (e.key === 'Enter') applyManualBpm(); });
+if (bpmInput) {
+  // keydown fonctionne sur desktop, pas sur iOS — on couvre les deux
+  bpmInput.addEventListener('keydown', e => { if (e.key === 'Enter') { applyManualBpm(); bpmInput.blur(); } });
+  bpmInput.addEventListener('change', applyManualBpm);   // iOS : déclenché au blur du champ
+}
 
 // ——— Tap Tempo ———
 if (btnTap) {
