@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.13.1'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.13.2'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -700,10 +700,11 @@ if (btnStopRec) {
 }
 
 // ——— Quantize (partagé écoute + export) ———
-// Sélectionne uniquement les boutons avec data-q (Raw/16e/32e), exclut beats-btn et btnPreviewClick
-document.querySelectorAll('[data-q]').forEach(btn => {
+// .q-btn = uniquement Raw/16e/32e (beats-btn et btnPreviewClick utilisent .seg-btn)
+document.querySelectorAll('.q-btn').forEach(btn => {
+  if (btn.dataset.q === 'none') btn.classList.add('active');
   btn.addEventListener('click', () => {
-    document.querySelectorAll('[data-q]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.q-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     quantizeMode = btn.dataset.q;
   });

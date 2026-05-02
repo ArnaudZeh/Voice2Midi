@@ -510,6 +510,9 @@
       cursor: pointer;
     }
     .q-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.07); }
+    /* Boutons toggle indépendants (beats, click preview) — même look que q-btn, séparés pour éviter les conflits */
+    .seg-btn { flex: 1; background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+    .seg-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.07); }
     .export-summary { font-size: 0.78rem; color: var(--accent); text-align: center; margin-top: 0.5rem; min-height: 1.2rem; }
     .bpm-manual-row {
       display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;
@@ -718,8 +721,8 @@
         <h2>4. Décompte + Rec</h2>
         <p class="status" style="text-align:left;padding:0;margin-bottom:0.5rem;">Décompte puis rec démarre automatiquement</p>
         <div class="quantize-row" style="margin-bottom:0.5rem;">
-          <button class="q-btn beats-btn active" data-beats="4">4 temps</button>
-          <button class="q-btn beats-btn" data-beats="8">8 temps</button>
+          <button class="seg-btn beats-btn active" data-beats="4">4 temps</button>
+          <button class="seg-btn beats-btn" data-beats="8">8 temps</button>
         </div>
         <div class="countdown-display" id="countdownDisplay"></div>
         <button id="btnCountdownRec" class="primary" style="margin-top:0.5rem;" disabled>▶ Décompte + Rec</button>
@@ -735,7 +738,7 @@
           <button class="q-btn" data-q="32n">32e</button>
         </div>
         <div class="quantize-row" style="margin-top:0.4rem;">
-          <button id="btnPreviewClick" class="q-btn">Click ✗</button>
+          <button id="btnPreviewClick" class="seg-btn">Click ✗</button>
         </div>
         <div class="preview-actions">
           <button id="btnPreviewPlay" class="secondary" disabled>▶ Écouter</button>
