@@ -1,6 +1,6 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.11.0'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.11.1'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
@@ -571,7 +571,7 @@ if (btnTap) {
     const count = getTapCount();
     if (bpm) {
       updateBpmDisplay(bpm);
-      if (tapHint) tapHint.textContent = `${count} tap${count > 1 ? 's' : ''} · ${bpm} BPM · continue pour affiner`;
+      if (tapHint) tapHint.textContent = `${count} tap${count > 1 ? 's' : ''} · continue pour affiner`;
       // Si le click tourne déjà, le redémarrer au nouveau BPM
       if (isClickRunning()) startClickUi(bpm);
     } else {

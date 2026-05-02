@@ -2,7 +2,6 @@
 import { MIDI_MAP, CLASSES } from './model.js';
 
 // ——— Tap Tempo ———
-const MAX_TAPS = 8;
 const TAP_TIMEOUT_MS = 2500; // reset si silence > 2.5s
 let taps = [];
 let tapTimer = null;
@@ -13,14 +12,13 @@ export function tap() {
   // Reset si trop long entre deux taps
   if (taps.length && now - taps[taps.length - 1] > TAP_TIMEOUT_MS) taps = [];
   taps.push(now);
-  if (taps.length > MAX_TAPS) taps.shift();
   tapTimer = setTimeout(() => { taps = []; }, TAP_TIMEOUT_MS);
   return getBpm();
 }
 
 export function getBpm() {
   if (taps.length < 2) return null;
-  // Moyenne des intervalles entre taps consécutifs
+  // Moyenne de tous les intervalles — s'affine à chaque tap
   let sum = 0;
   for (let i = 1; i < taps.length; i++) sum += taps[i] - taps[i - 1];
   const avgInterval = sum / (taps.length - 1);
