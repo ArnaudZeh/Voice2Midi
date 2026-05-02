@@ -1,7 +1,9 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.9.10'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.10.0'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
+import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
+import { saveModelData, loadModelData } from './storage.js';
 
 // Navigation entre écrans
 const navButtons = document.querySelectorAll('nav button');
@@ -284,14 +286,139 @@ const lastClassTime = [0, 0, 0];
 const CLASS_COOLDOWN_MS = [200, 80, 40]; // China (200ms anti-triplette), Snare, Kick
 
 const RAIL_NAMES = ['China', 'Snare', 'Kick'];
+const RAIL_COLORS = ['#ffb020', '#ff3b5c', '#4f9dff'];
+let mlMode = false;          // false = heuristique, true = KNN
+let capturingClass = -1;     // classIdx en cours de capture (-1 = inactif)
+
+// ——— Capture training ———
 onOnset((data) => {
-  const railIdx = classifyOnset(data);
+  if (capturingClass < 0) return;
+  addTrainingSample(capturingClass, data);
+  updateTrainingUI();
+});
+
+// ——— Classification (heuristique ou ML) ———
+onOnset((data) => {
+  let railIdx;
+  if (mlMode && isModelTrained()) {
+    const result = predict(data);
+    if (!result || result.confidence < 0.5) return;
+    railIdx = result.classIdx;
+  } else {
+    railIdx = classifyOnset(data);
+  }
   const now = data.timestamp;
   if (now - lastClassTime[railIdx] < CLASS_COOLDOWN_MS[railIdx]) return;
   lastClassTime[railIdx] = now;
   noteHistory.push({ time: now, velocity: data.rms, railIdx });
-  log(`  → ${RAIL_NAMES[railIdx]}`);
+  const suffix = mlMode ? ` (ML)` : '';
+  log(`  → ${RAIL_NAMES[railIdx]}${suffix}`);
 });
+
+// ——— UI Training ———
+function updateTrainingUI() {
+  const counts = getTrainingCounts();
+  CLASSES.forEach((cls, i) => {
+    const el = document.getElementById(`count-${cls}`);
+    if (el) el.textContent = `${counts[i]} sample${counts[i] > 1 ? 's' : ''}`;
+  });
+  const btnTrain = document.getElementById('btnTrain');
+  if (btnTrain) {
+    const ready = canTrain();
+    btnTrain.disabled = !ready;
+    btnTrain.textContent = ready
+      ? 'Entraîner le modèle'
+      : `Entraîner (min ${MIN_SAMPLES}/classe · ${counts.join('/')})`;
+  }
+}
+
+function updateModeLabel() {
+  const el = document.getElementById('modeLabel');
+  if (!el) return;
+  el.textContent = mlMode ? '🤖 ML actif' : '📐 Heuristique';
+  el.style.color = mlMode ? 'var(--accent)' : 'var(--text-dim)';
+}
+
+// Boutons Rec par classe
+CLASSES.forEach((cls, idx) => {
+  const btn = document.getElementById(`rec-${cls}`);
+  const card = document.getElementById(`tc-${cls}`);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (capturingClass === idx) {
+      // Stop
+      capturingClass = -1;
+      btn.textContent = '● Rec';
+      btn.classList.remove('recording');
+      if (card) card.classList.remove('recording');
+    } else {
+      // Stop le précédent s'il y en a un
+      if (capturingClass >= 0) {
+        const prevBtn = document.getElementById(`rec-${CLASSES[capturingClass]}`);
+        const prevCard = document.getElementById(`tc-${CLASSES[capturingClass]}`);
+        if (prevBtn) { prevBtn.textContent = '● Rec'; prevBtn.classList.remove('recording'); }
+        if (prevCard) prevCard.classList.remove('recording');
+      }
+      capturingClass = idx;
+      btn.textContent = '■ Stop';
+      btn.classList.add('recording');
+      if (card) card.classList.add('recording');
+    }
+  });
+});
+
+// Bouton Entraîner
+const btnTrain = document.getElementById('btnTrain');
+if (btnTrain) {
+  btnTrain.addEventListener('click', async () => {
+    try {
+      trainModel();
+      mlMode = true;
+      updateModeLabel();
+      updateTrainingUI();
+      await saveModelData(serializeModel());
+      log(`Modèle KNN entraîné (${getTrainingCounts().join('/')} samples). Mode ML actif.`);
+    } catch (err) {
+      log(`Erreur training : ${err.message}`);
+    }
+  });
+}
+
+// Bouton Reset
+const btnResetTraining = document.getElementById('btnResetTraining');
+if (btnResetTraining) {
+  btnResetTraining.addEventListener('click', () => {
+    // Arrêter toute capture en cours
+    if (capturingClass >= 0) {
+      const btn = document.getElementById(`rec-${CLASSES[capturingClass]}`);
+      const card = document.getElementById(`tc-${CLASSES[capturingClass]}`);
+      if (btn) { btn.textContent = '● Rec'; btn.classList.remove('recording'); }
+      if (card) card.classList.remove('recording');
+      capturingClass = -1;
+    }
+    clearTraining();
+    mlMode = false;
+    updateModeLabel();
+    updateTrainingUI();
+    log('Training reset — retour heuristique.');
+  });
+}
+
+// Chargement modèle au démarrage
+(async () => {
+  try {
+    const data = await loadModelData();
+    if (data) {
+      deserializeModel(data);
+      if (isModelTrained()) {
+        mlMode = true;
+        updateModeLabel();
+        updateTrainingUI();
+        log(`Modèle KNN chargé (${getTrainingCounts().join('/')} samples). Mode ML actif.`);
+      }
+    }
+  } catch (_) { /* pas de modèle sauvegardé */ }
+})();
 
 // Slider zoom timeline
 const zoomSlider = document.getElementById('zoomSlider');

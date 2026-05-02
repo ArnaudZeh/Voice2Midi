@@ -354,6 +354,68 @@
       overflow-y: auto;
       white-space: pre-wrap;
     }
+
+    /* ——— Training ML ——— */
+    .tc-grid {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .tc-card {
+      flex: 1;
+      background: var(--surface-2);
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 0.5rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.3rem;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .tc-card.recording {
+      border-color: var(--danger);
+      background: rgba(255, 59, 92, 0.07);
+    }
+    .tc-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .tc-name { font-weight: 600; font-size: 0.85rem; }
+    .tc-count {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+    }
+    .tc-rec-btn {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 0.2rem;
+    }
+    .tc-rec-btn.recording {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+      animation: pulse 1s ease-in-out infinite;
+    }
+    .training-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .training-actions .primary { flex: 1; padding: 0.85rem; font-size: 0.88rem; }
+    .training-actions .secondary { width: auto; padding: 0.85rem 1rem; }
+    .mode-status {
+      margin-top: 0.6rem;
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      text-align: center;
+    }
+    #modeLabel { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -396,7 +458,36 @@
       </div>
 
       <div class="card">
-        <h2>3. Pré-enregistrement</h2>
+        <h2>3. Entraînement ML</h2>
+        <div class="tc-grid">
+          <div class="tc-card" id="tc-china">
+            <div class="tc-dot" style="background:#ffb020;"></div>
+            <div class="tc-name">China</div>
+            <div class="tc-count" id="count-china">0 samples</div>
+            <button class="tc-rec-btn" id="rec-china">● Rec</button>
+          </div>
+          <div class="tc-card" id="tc-snare">
+            <div class="tc-dot" style="background:#ff3b5c;"></div>
+            <div class="tc-name">Snare</div>
+            <div class="tc-count" id="count-snare">0 samples</div>
+            <button class="tc-rec-btn" id="rec-snare">● Rec</button>
+          </div>
+          <div class="tc-card" id="tc-kick">
+            <div class="tc-dot" style="background:#4f9dff;"></div>
+            <div class="tc-name">Kick</div>
+            <div class="tc-count" id="count-kick">0 samples</div>
+            <button class="tc-rec-btn" id="rec-kick">● Rec</button>
+          </div>
+        </div>
+        <div class="training-actions">
+          <button id="btnTrain" class="primary" disabled>Entraîner (min 5/classe)</button>
+          <button id="btnResetTraining" class="secondary danger">Reset</button>
+        </div>
+        <div class="mode-status">Mode : <span id="modeLabel">Heuristique</span></div>
+      </div>
+
+      <div class="card">
+        <h2>4. Pré-enregistrement</h2>
         <div class="prerecord-row">
           <button id="btnPreRecord" class="primary" style="width: auto; padding: 0.75rem 1.25rem;">
             Enregistrer 5s
@@ -410,7 +501,7 @@
       </div>
 
       <div class="card">
-        <h2>4. Timeline MIDI</h2>
+        <h2>5. Timeline MIDI</h2>
         <div class="notes-timeline">
           <canvas id="notesCanvas"></canvas>
         </div>
@@ -419,11 +510,11 @@
           <input type="range" id="zoomSlider" min="0.5" max="6" step="0.5" value="2">
           <span class="sens-value" id="zoomValue">2s</span>
         </div>
-        <p class="status">Heuristique centroid · bleu=kick · rouge=snare · vert=hh fermé · orange=hh ouvert</p>
+        <p class="status">Orange=China · Rouge=Snare · Bleu=Kick — heuristique ou ML selon mode actif</p>
       </div>
 
       <div class="card">
-        <h2>5. Logs</h2>
+        <h2>6. Logs</h2>
         <div class="log" id="log">En attente...</div>
       </div>
     </section>

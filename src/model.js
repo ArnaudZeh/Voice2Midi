@@ -1,89 +1,108 @@
-// src/model.js
-// TensorFlow.js classifier — à implémenter en Phase 2
-// Pour l'instant, squelette et signatures uniquement
-
-/**
- * Plan Phase 2 :
- *
- * 1. Training UI
- *    - Pour chaque classe (kick, snare, hihat_closed, hihat_open) :
- *      - Demander 15-20 exemples
- *      - Pour chaque exemple : capturer un onset + ses features (17 valeurs)
- *      - Stocker dans un array par classe
- *
- * 2. Préparation dataset
- *    - Normaliser les features (z-score par feature)
- *    - Split train/val 80/20
- *    - One-hot encoding des labels
- *
- * 3. Architecture modèle (petit MLP)
- *    - Input: 17 features (13 MFCC + centroid + rolloff + ZCR + RMS)
- *    - Dense 32 ReLU
- *    - Dropout 0.2
- *    - Dense 16 ReLU
- *    - Dense N_CLASSES softmax
- *
- * 4. Training
- *    - Adam optimizer, lr=0.001
- *    - categoricalCrossentropy
- *    - ~100 epochs, batch 8
- *    - Early stopping sur val_loss
- *
- * 5. Inference temps réel
- *    - À chaque onset dans audio.js, appeler predict()
- *    - Retourner { className, confidence }
- *    - Si confidence < 0.6, ignorer (probablement bruit)
- *
- * 6. Persistance
- *    - Sauver modèle + normalisation stats dans IndexedDB
- *    - Charger au démarrage si dispo
- */
+// src/model.js — KNN classifier (Phase 2)
+// Features : [lowAvg, midAvg, highAvg, zcr, rms, spectralFlux] (6 dimensions)
 
 export const CLASSES = ['china', 'snare', 'kick'];
+export const N_CLASSES = CLASSES.length;
+export const MIN_SAMPLES = 5; // minimum par classe pour entraîner
 
-// GM Drums MIDI note mapping
 export const MIDI_MAP = {
-  kick: 36,
-  snare: 38,
-  china: 52,    // GM Chinese Cymbal
-  // extensions futures
-  tom_low: 41,
-  tom_mid: 45,
-  tom_high: 48,
-  crash: 49,
-  ride: 51,
+  kick:  36,  // C1
+  snare: 38,  // D1
+  china: 52,  // GM Chinese Cymbal
+  tom_low: 41, tom_mid: 45, tom_high: 48,
+  crash: 49, ride: 51,
 };
 
-let model = null;
-let normalizationStats = null;
+const K = 3; // voisins KNN
 
-export async function trainModel(samples) {
-  // TODO Phase 2
-  throw new Error('trainModel pas encore implémenté');
-}
+let trainingSamples = []; // [{ classIdx, features }]
+let normStats = null;     // { mean[], std[] }
+let isTrained = false;
 
-export function predict(features) {
-  // TODO Phase 2
-  // Retour attendu : { className: 'kick', confidence: 0.92 }
-  return null;
-}
-
-export async function saveModel() {
-  // TODO Phase 2 — via IndexedDB
-}
-
-export async function loadModel() {
-  // TODO Phase 2
-  return null;
-}
-
-// Utilitaire : convertit un onset en vecteur de features pour le modèle
+// Extrait le vecteur de features depuis un onsetData (audio.js)
 export function featuresFromOnset(onset) {
-  return [
-    ...onset.mfcc,                    // 13 valeurs
-    onset.spectralCentroid,
-    onset.zcr,
-    onset.rms,
-    onset.spectralFlux,
-  ];
+  return [onset.lowAvg, onset.midAvg, onset.highAvg, onset.zcr, onset.rms, onset.spectralFlux];
+}
+
+export function addTrainingSample(classIdx, onsetData) {
+  trainingSamples.push({ classIdx, features: featuresFromOnset(onsetData) });
+}
+
+export function clearClassSamples(classIdx) {
+  trainingSamples = trainingSamples.filter(s => s.classIdx !== classIdx);
+  isTrained = false;
+  normStats = null;
+}
+
+export function clearTraining() {
+  trainingSamples = [];
+  normStats = null;
+  isTrained = false;
+}
+
+export function getTrainingCounts() {
+  const counts = new Array(N_CLASSES).fill(0);
+  trainingSamples.forEach(s => counts[s.classIdx]++);
+  return counts;
+}
+
+export function canTrain() {
+  return getTrainingCounts().every(c => c >= MIN_SAMPLES);
+}
+
+export function isModelTrained() { return isTrained; }
+
+// Normalisation z-score
+function computeNormStats(samples) {
+  const n = samples.length;
+  const dim = samples[0].features.length;
+  const mean = new Array(dim).fill(0);
+  const std  = new Array(dim).fill(0);
+  samples.forEach(s => s.features.forEach((v, i) => { mean[i] += v; }));
+  mean.forEach((_, i) => { mean[i] /= n; });
+  samples.forEach(s => s.features.forEach((v, i) => { std[i] += (v - mean[i]) ** 2; }));
+  std.forEach((_, i) => { std[i] = Math.sqrt(std[i] / n) || 1; });
+  return { mean, std };
+}
+
+function normalize(features, stats) {
+  return features.map((v, i) => (v - stats.mean[i]) / stats.std[i]);
+}
+
+export function trainModel() {
+  if (!canTrain()) throw new Error(`Min ${MIN_SAMPLES} samples par classe requis`);
+  normStats = computeNormStats(trainingSamples);
+  isTrained = true;
+}
+
+export function predict(onsetData) {
+  if (!isTrained || !normStats) return null;
+  const features = normalize(featuresFromOnset(onsetData), normStats);
+  const k = Math.min(K, trainingSamples.length);
+
+  const distances = trainingSamples.map(s => ({
+    classIdx: s.classIdx,
+    dist: Math.sqrt(
+      normalize(s.features, normStats)
+        .reduce((acc, v, i) => acc + (v - features[i]) ** 2, 0)
+    ),
+  }));
+  distances.sort((a, b) => a.dist - b.dist);
+
+  const votes = new Array(N_CLASSES).fill(0);
+  distances.slice(0, k).forEach(n => votes[n.classIdx]++);
+  const classIdx = votes.indexOf(Math.max(...votes));
+  return { classIdx, className: CLASSES[classIdx], confidence: votes[classIdx] / k };
+}
+
+// Sérialisation pour IndexedDB
+export function serializeModel() {
+  return { samples: trainingSamples, normStats, isTrained };
+}
+
+export function deserializeModel(data) {
+  if (!data) return;
+  trainingSamples = data.samples || [];
+  normStats       = data.normStats || null;
+  isTrained       = data.isTrained || false;
 }

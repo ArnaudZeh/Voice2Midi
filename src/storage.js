@@ -66,3 +66,26 @@ export async function clearSamples() {
     req.onerror = () => reject(req.error);
   });
 }
+
+// Persistance du modèle KNN (samples + normStats) dans le store 'settings'
+export async function saveModelData(data) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('settings', 'readwrite');
+    const store = tx.objectStore('settings');
+    const req = store.put({ key: 'knn_model', ...data });
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function loadModelData() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('settings', 'readonly');
+    const store = tx.objectStore('settings');
+    const req = store.get('knn_model');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
