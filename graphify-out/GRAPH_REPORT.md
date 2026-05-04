@@ -1,5 +1,5 @@
 # Voice2Midi Knowledge Graph Report
-**Generated:** 2026-05-03 | **Version:** v0.13.3 | **Status:** Phases 1–3 complètes
+**Generated:** 2026-05-03 | **Version:** v0.13.4 | **Status:** Phases 1–3 complètes
 
 > **Usage :** Lire ce fichier EN PREMIER avant tout grep/glob. Contient toutes les fonctions, seuils, dépendances et numéros de ligne à jour.
 
@@ -405,8 +405,8 @@ EXPORT FLOW:
 
 | Paramètre | Valeur | Fichier:Ligne | Notes |
 |-----------|--------|--------------|-------|
-| `APP_VERSION` | `'v0.13.3'` | ui.js:3 | Bumper à chaque modif |
-| `CACHE_NAME` | `'beatbox2midi-v33'` | sw.js:2 | Sync avec APP_VERSION |
+| `APP_VERSION` | `'v0.13.4'` | ui.js:3 | Bumper à chaque modif |
+| `CACHE_NAME` | `'beatbox2midi-v34'` | sw.js:2 | Sync avec APP_VERSION |
 | `fftSize` | 2048 | audio.js:17 | Fenêtre FFT ~46ms @ 44100Hz |
 | `rmsThreshold` | 0.008 | audio.js:18 | Default sensitiv. 7/10 |
 | `fluxThreshold` | 0.006 | audio.js:19 | Default sensitiv. 7/10 |
@@ -514,7 +514,9 @@ EXPORT FLOW:
 3. `CACHE_NAME` dans `sw.js:2` → suffixe numérique incrémental
 4. `git tag vX.Y.Z && git push --tags`
 
-**Pourquoi le double :** la ligne JS `document.getElementById('app-version').textContent = APP_VERSION` est à ui.js:10, tout en haut. Mais le HTML hardcode la version en backup absolu — si le module entier crashe, la version reste affichée.
+**Pourquoi le double :** la ligne JS (ui.js:12, avec null check) met à jour l'élément au boot. Le HTML hardcode la version en backup absolu — si le module crashe, la version reste affichée.
+
+**⚠️ Règle critique :** `isRecording` DOIT être déclaré à ui.js:~268, AVANT le bloc `if (notesCanvas)` et l'appel `drawNotes()`. Si ce `let` est après la ligne 533 où `drawNotes()` est appelé, la première exécution synchrone jette un `ReferenceError` (Temporal Dead Zone) qui crash tout le module — timeline noire, export screen jamais initialisée.
 
 **Historique :**
 | Version | SW Cache | Changements |
@@ -530,6 +532,7 @@ EXPORT FLOW:
 | v0.13.1 | v31 | Fix sélecteur quantize `[data-q]` (restaure versioning) |
 | v0.13.2 | v32 | Fix conflits boutons : `seg-btn` pour beats/click, `q-btn` restauré |
 | v0.13.3 | v33 | Fix versioning définitif : hardcodé HTML + JS en ligne 10 (avant tout crash possible) |
+| v0.13.4 | v34 | Fix TDZ : `isRecording` déplacé avant `drawNotes` + null check sur version element |
 
 ---
 
