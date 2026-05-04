@@ -1,11 +1,15 @@
 // src/ui.js
 // Gestion UI : navigation écrans, visualisation, logs
-export const APP_VERSION = 'v0.13.2'; // à bumper à chaque modif (format semver patch)
+export const APP_VERSION = 'v0.13.3'; // à bumper à chaque modif (format semver patch)
 import { startMicrophone, onOnset, onRMS, setSensitivity, setInputGain, recordSnapshot, getConfig, getMetrics } from './audio.js';
 import { addTrainingSample, trainModel, predict, isModelTrained, canTrain, getTrainingCounts, clearClassSamples, clearTraining, serializeModel, deserializeModel, CLASSES, MIN_SAMPLES } from './model.js';
 import { saveModelData, loadModelData } from './storage.js';
 import { tap, getBpm, getTapCount, resetTaps, startClick, stopClick, isClickRunning, startCountdown, buildAndDownloadMidi, previewNotes, stopPreview, applyQuantize } from './midi.js';
 import { saveDrumSample, loadDrumSamples } from './storage.js';
+
+// ——— VERSION — exécuté EN PREMIER, avant tout le reste ———
+// Si quoi que ce soit crashe plus bas, la version reste visible depuis le HTML
+document.getElementById('app-version').textContent = APP_VERSION;
 
 // Navigation entre écrans
 const navButtons = document.querySelectorAll('nav button');
@@ -528,9 +532,6 @@ if (notesCanvas) {
   }
   drawNotes();
 }
-
-const versionEl = document.getElementById('app-version');
-if (versionEl) versionEl.textContent = APP_VERSION;
 
 log(`Beatbox2MIDI ${APP_VERSION} chargée. Clique "Autoriser le micro" pour commencer.`);
 
